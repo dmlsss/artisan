@@ -1474,7 +1474,7 @@ class ApplicationWindow(QMainWindow):
         'seriallog', 'ser', 'modbus', 'extraMODBUStemps', 'extraMODBUStx', 's7', 'extraS7tx', 'ws', 'extraser', 'extracomport', 'extrabaudrate',
         'extrabytesize', 'extraparity', 'extrastopbits', 'extratimeout', 'hottop', 'santokerHost', 'santokerPort', 'santokerSerial', 'santokerBLE', 'santokerEventFlags', 'santoker', 'santokerR', 'lebrew_roastseeNEXT', 'thermoworksBlueDOT', 'fujipid', 'dtapid', 'pidcontrol', 'soundflag', 'recentRoasts', 'maxRecentRoasts',
         'mugmaHost','mugmaPort', 'mugma', 'mugma_default_host', 'shelly_3EMPro_host', 'shelly_PlusPlug_host',
-        'kaleido_default_host', 'kaleidoHost', 'kaleidoPort', 'kaleidoSerial', 'kaleidoPID', 'kaleido', 'kaleidoEventFlags', 'kaleidoAutoDetect', 'colorTrack_mean_window_size', 'colorTrack_median_window_size', 'ikawa',
+        'kaleido_default_host', 'kaleidoHost', 'kaleidoPort', 'kaleidoSerial', 'kaleidoPID', 'kaleido', 'kaleidoEventFlags', 'kaleidoAutoDetect', 'thermalControlAction', 'colorTrack_mean_window_size', 'colorTrack_median_window_size', 'ikawa',
         'lcdpaletteB', 'lcdpaletteF', 'extraeventsbuttonsflags', 'extraeventslabels', 'extraeventbuttoncolor', 'extraeventsactionstrings',
         'extraeventbuttonround', 'block_quantification_sampling_ticks', 'sampling_seconds_to_block_quantifiction', 'sampling_ticks_to_block_quantifiction', 'extraeventsactionslastvalue',
         'org_extradevicesettings', 'eventslidervalues', 'eventslidervisibilities', 'eventsliderKeyboardControl', 'eventsliderAlternativeLayout_default',
@@ -2074,6 +2074,9 @@ class ApplicationWindow(QMainWindow):
         kaleidoLightCityAction = QAction('Light City', self)
         kaleidoLightCityAction.triggered.connect(self.loadKaleidoLightCity)
         self.kaleidoTemplatesMenu.addAction(kaleidoLightCityAction)
+
+        self.thermalControlAction:QAction = QAction(QApplication.translate('Menu', 'Thermal Model Control...'), self)
+        self.thermalControlAction.triggered.connect(self.showThermalControlDialog)
 
         kaleidoFullCityAction = QAction('Full City', self)
         kaleidoFullCityAction.triggered.connect(self.loadKaleidoFullCity)
@@ -4496,6 +4499,8 @@ class ApplicationWindow(QMainWindow):
             tools_menu.addMenu(self.temperatureMenu)
             tools_menu.addSeparator()
             tools_menu.addAction(self.calculatorAction)
+            tools_menu.addSeparator()
+            tools_menu.addAction(self.thermalControlAction)
         return tools_menu
 
     def create_view_menu(self, ui_mode:UI_MODE) -> QMenu:
@@ -25830,6 +25835,14 @@ class ApplicationWindow(QMainWindow):
         """Show quick cupping dialog after DROP event"""
         from artisanlib.quick_cupping import QuickCuppingDlg
         dialog = QuickCuppingDlg(self, self)
+        dialog.exec()
+
+    @pyqtSlot()
+    @pyqtSlot(bool)
+    def showThermalControlDialog(self, _:bool = False) -> None:
+        """Show thermal model control dialog for automated roast scheduling"""
+        from artisanlib.thermal_control_dlg import ThermalControlDlg
+        dialog = ThermalControlDlg(self, self)
         dialog.exec()
 
     @pyqtSlot()
