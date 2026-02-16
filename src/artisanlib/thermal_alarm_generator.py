@@ -128,11 +128,14 @@ def _append_alarm(
     value: str,
 ) -> None:
     """Append one alarm entry with standard time-only defaults."""
+    # Timed alarms with offset 0 can be skipped because they still pass
+    # through the temperature condition branch in the alarm engine.
+    safe_offset = max(1, int(offset))
     data.alarmflag.append(_FLAG_ENABLED)
     data.alarmguard.append(_GUARD_NONE)
     data.alarmnegguard.append(_GUARD_NONE)
     data.alarmtime.append(_TIME_ON_CHARGE)
-    data.alarmoffset.append(offset)
+    data.alarmoffset.append(safe_offset)
     data.alarmsource.append(_SOURCE_BT)
     data.alarmcond.append(_COND_ABOVE)
     data.alarmtemperature.append(_TEMP_ALWAYS)

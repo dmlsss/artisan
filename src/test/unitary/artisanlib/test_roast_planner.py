@@ -64,6 +64,6 @@ def test_build_safety_alarm_set_defaults() -> None:
     assert alarms['alarmflags'] == [1, 1]
     assert alarms['alarmsources'] == [0, 1]  # ET, BT
     assert alarms['alarmconds'] == [1, 1]  # >
-    assert alarms['alarmactions'] == [1, 1]  # popup
+    assert alarms['alarmactions'] == [0, 0]  # popup
     assert alarms['alarmbeep'] == [1, 1]
     assert len(alarms['alarmtemperatures']) == 2

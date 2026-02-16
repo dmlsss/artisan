@@ -49,7 +49,7 @@ from artisanlib.thermal_alarm_generator import (
 from artisanlib.thermal_model import KaleidoThermalModel, ThermalModelParams
 from artisanlib.thermal_model_fitting import FitResult, fit_model
 from artisanlib.thermal_model_inversion import InversionResult, invert_model
-from artisanlib.thermal_profile_parser import CalibrationData, parse_alog_profile
+from artisanlib.thermal_profile_parser import CalibrationData, parse_alog_profile, parse_target_profile
 
 import numpy as np
 
@@ -572,6 +572,18 @@ class ThermalControlDlg(ArtisanDialog):
             self.target_source_combo.setItemText(
                 1, QApplication.translate('ComboBox', 'File: {0}').format(basename)
             )
+            try:
+                target = parse_target_profile(str(filepath))
+                if target.batch_mass_kg > 0.0:
+                    mass_g = int(round(target.batch_mass_kg * 1000.0))
+                    clamped_mass = max(
+                        self.batch_mass_spin.minimum(),
+                        min(mass_g, self.batch_mass_spin.maximum()),
+                    )
+                    self.batch_mass_spin.setValue(clamped_mass)
+            except Exception:  # pylint: disable=broad-except
+                # Profile parsing is re-validated on Generate.
+                pass
 
     @pyqtSlot(int)
     def _on_fan_strategy_changed(self, index: int) -> None:
@@ -607,9 +619,9 @@ class ThermalControlDlg(ArtisanDialog):
                 )
                 return
             try:
-                calib = parse_alog_profile(str(filepath))
-                target_time = calib.time
-                target_bt = calib.bt
+                target = parse_target_profile(str(filepath))
+                target_time = target.time
+                target_bt = target.bt
             except Exception as e:  # pylint: disable=broad-except
                 _log.exception('Failed to parse target profile')
                 self.aw.sendmessage(

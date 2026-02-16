@@ -365,7 +365,7 @@ def build_safety_alarm_set(
         'alarmconds': [1, 1],  # '>'
         'alarmsources': [0, 1],  # ET, BT
         'alarmtemperatures': [et_limit, bt_limit],
-        'alarmactions': [1, 1],  # popup
+        'alarmactions': [0, 0],  # popup
         'alarmbeep': [1, 1],
         'alarmstrings': ['ET safety ceiling', 'BT safety ceiling'],
     }

@@ -131,6 +131,7 @@ Roast Planner tests
 
 ```
 # pytest src/test/unitary/artisanlib/test_roast_planner.py
+# pytest src/test/unitary/artisanlib/test_thermal_integration.py
 ```
 
 Coverage (types, tests)
@@ -142,5 +143,4 @@ Coverage (types, tests)
 # coverage run -m pytest
 # coverage-badge -o coverage.svg
 ```
-
 

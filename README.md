@@ -45,7 +45,7 @@ If you think Artisan is useful to you, contribute financially to its further dev
 
 [Documentation](https://artisan-scope.org/docs/)
 
-[Roast Planner Guide (Kaleido Feedforward)](https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/RoastPlanner.md)
+[Roast Planner Guide (Template + Thermal Modes)](https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/RoastPlanner.md)
 
 
 PLEASE FOLLOW AND TAG US!

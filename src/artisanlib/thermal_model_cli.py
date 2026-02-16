@@ -38,7 +38,7 @@ from artisanlib.thermal_model_fitting import (
     fit_model,
 )
 from artisanlib.thermal_model_inversion import invert_model
-from artisanlib.thermal_profile_parser import parse_multiple_profiles
+from artisanlib.thermal_profile_parser import parse_multiple_profiles, parse_target_profile
 from artisanlib.thermal_alarm_generator import (
     generate_alarm_table,
     generate_schedule_description,
@@ -187,11 +187,11 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
     # Parse target profile
     print(f'Parsing target profile: {args.target}')
-    targets = parse_multiple_profiles([args.target])
-    if not targets:
-        print('Error: Could not parse target profile.', file=sys.stderr)
+    try:
+        target = parse_target_profile(args.target)
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f'Error: Could not parse target profile: {exc}', file=sys.stderr)
         return 1
-    target = targets[0]
 
     mass_kg = args.mass / 1000.0  # CLI takes grams, model uses kg
     print(f'Batch mass: {args.mass} g ({mass_kg:.4f} kg)')

@@ -2678,7 +2678,7 @@ class ApplicationWindow(QMainWindow):
         self.calculatorAction = QAction(QApplication.translate('Menu', 'Calculator'), self)
         self.calculatorAction.triggered.connect(self.calculator)
 
-        self.roastPlannerAction = QAction(QApplication.translate('Menu', 'Roast Planner'), self)
+        self.roastPlannerAction = QAction(QApplication.translate('Menu', 'Roast Planner...'), self)
         self.roastPlannerAction.triggered.connect(self.roastPlanner)
 
         # VIEW menu
@@ -4499,8 +4499,6 @@ class ApplicationWindow(QMainWindow):
             tools_menu.addMenu(self.temperatureMenu)
             tools_menu.addSeparator()
             tools_menu.addAction(self.calculatorAction)
-            tools_menu.addSeparator()
-            tools_menu.addAction(self.thermalControlAction)
         return tools_menu
 
     def create_view_menu(self, ui_mode:UI_MODE) -> QMenu:
@@ -25623,6 +25621,31 @@ class ApplicationWindow(QMainWindow):
     @pyqtSlot()
     @pyqtSlot(bool)
     def roastPlanner(self, _:bool = False) -> None:
+        chooser = QMessageBox(self)
+        chooser.setWindowTitle(QApplication.translate('Message', 'Roast Planner'))
+        chooser.setText(QApplication.translate('Message', 'Select planning mode'))
+        template_button = chooser.addButton(
+            QApplication.translate('Message', 'Template/Event Planner'),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        thermal_button = chooser.addButton(
+            QApplication.translate('Message', 'Thermal Model Planner'),
+            QMessageBox.ButtonRole.ActionRole,
+        )
+        chooser.addButton(QMessageBox.StandardButton.Cancel)
+        chooser.setDefaultButton(cast(QPushButton, template_button))
+        chooser.exec()
+
+        clicked = chooser.clickedButton()
+        if clicked == thermal_button:
+            self.showThermalControlDialog()
+            return
+        if clicked != template_button:
+            return
+
+        self.runTemplateRoastPlanner()
+
+    def runTemplateRoastPlanner(self) -> None:
         source_profile_path = self.ArtisanOpenFileDialog(
             msg=QApplication.translate('Message', 'Select Target Profile'),
             ext='*.alog')

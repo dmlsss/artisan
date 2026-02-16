@@ -17,6 +17,7 @@
 # Derek Mead, 2025
 
 import ast
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -57,20 +58,33 @@ class CalibrationData:
     source_file:   str = field(default='')
 
 
+@dataclass(slots=True)
+class TargetCurveData:
+    """Target BT curve extracted from a roast profile."""
+
+    time: npt.NDArray[np.float64]       # seconds, rebased to 0 at CHARGE/start
+    bt: npt.NDArray[np.float64]         # bean temperature (C/F as stored)
+    batch_mass_kg: float                # green-bean charge weight in kg
+    source_file: str = field(default='')
+
+
 # ── helpers ──────────────────────────────────────────────────────────
 
 
 def _load_profile(filepath: str) -> dict:
     """Read an .alog file and return the raw profile dict.
 
-    Uses ``ast.literal_eval`` — the same mechanism as
-    ``artisanlib.util.deserialize``.
+    Supports both legacy Python-literal and JSON profile formats.
     """
     fp = str(filepath)
     if not os.path.exists(fp):
         raise FileNotFoundError(f'Profile not found: {fp}')
     with open(fp, encoding='utf-8') as fh:
-        return ast.literal_eval(fh.read())  # type: ignore[return-value]
+        data = fh.read()
+    try:
+        return ast.literal_eval(data)  # type: ignore[return-value]
+    except (ValueError, SyntaxError):
+        return json.loads(data)
 
 
 def _find_device_index(extradevices: list[int], device_id: int) -> int | None:
@@ -147,6 +161,33 @@ def _resolve_charge_drop(timeindex: list[int], timex_len: int) -> tuple[int, int
             f'CHARGE ({charge_idx}) must precede DROP ({drop_idx})')
 
     return charge_idx, drop_idx
+
+
+def _resolve_slice(
+    profile: dict,
+    timex_len: int,
+    *,
+    strict_timeindex: bool,
+) -> tuple[slice, int]:
+    """Resolve the CHARGE->DROP slice and CHARGE index.
+
+    If *strict_timeindex* is ``False`` and the profile does not contain a
+    valid CHARGE/DROP pair, the full timeline is used.
+    """
+    timeindex = profile.get('timeindex')
+    if isinstance(timeindex, list):
+        try:
+            charge_idx, drop_idx = _resolve_charge_drop(timeindex, timex_len)
+            return slice(charge_idx, drop_idx + 1), charge_idx
+        except ValueError:
+            if strict_timeindex:
+                raise
+            _log.info('Using full timeline: CHARGE/DROP window unavailable')
+
+    if strict_timeindex:
+        raise ValueError('Profile is missing valid timeindex data')
+
+    return slice(0, timex_len), 0
 
 
 def _batch_mass_kg(profile: dict) -> float:
@@ -248,13 +289,7 @@ def parse_alog_profile(filepath: str) -> CalibrationData:
     bt = bt[:n]
 
     # ── CHARGE / DROP window ─────────────────────────────────────────
-    timeindex = profile.get('timeindex')
-    if timeindex is None:
-        raise ValueError('Profile is missing timeindex')
-
-    charge_idx, drop_idx = _resolve_charge_drop(timeindex, n)
-
-    sl = slice(charge_idx, drop_idx + 1)  # inclusive of DROP
+    sl, charge_idx = _resolve_slice(profile, n, strict_timeindex=True)
     t  = main_timex[sl] - main_timex[charge_idx]  # rebase to 0
 
     return CalibrationData(
@@ -264,6 +299,40 @@ def parse_alog_profile(filepath: str) -> CalibrationData:
         heater_pct=heater[sl],
         fan_pct=fan[sl],
         drum_pct=drum[sl],
+        batch_mass_kg=_batch_mass_kg(profile),
+        source_file=os.path.abspath(filepath),
+    )
+
+
+def parse_target_profile(filepath: str) -> TargetCurveData:
+    """Parse a profile into a target BT curve for schedule generation.
+
+    Unlike :func:`parse_alog_profile`, this parser does not require Kaleido
+    extra-device channels and accepts any profile containing `timex` + `temp2`.
+    """
+    _log.info('Parsing target curve profile: %s', filepath)
+    profile = _load_profile(filepath)
+
+    timex_raw = profile.get('timex')
+    temp2_raw = profile.get('temp2')
+    if timex_raw is None or temp2_raw is None:
+        raise ValueError('Profile is missing timex or temp2')
+
+    timex = np.asarray(timex_raw, dtype=np.float64)
+    bt = np.asarray(temp2_raw, dtype=np.float64)
+    n = min(len(timex), len(bt))
+    if n < 2:
+        raise ValueError('Profile must contain at least two BT samples')
+
+    timex = timex[:n]
+    bt = bt[:n]
+
+    sl, start_idx = _resolve_slice(profile, n, strict_timeindex=False)
+    t = timex[sl] - timex[start_idx]
+
+    return TargetCurveData(
+        time=t,
+        bt=bt[sl],
         batch_mass_kg=_batch_mass_kg(profile),
         source_file=os.path.abspath(filepath),
     )

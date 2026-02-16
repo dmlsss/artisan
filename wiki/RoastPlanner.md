@@ -1,87 +1,108 @@
-# Roast Planner (Kaleido Feedforward)
+# Roast Planner (Integrated Template + Thermal Modes)
 
 ## Overview
 
-The Roast Planner adds a feedforward planning flow for Kaleido-style control profiles.
+`Tools >> Roast Planner...` now provides one unified entry point with two planning engines:
 
-It takes a source Artisan profile (`.alog`) containing control events, normalizes those events to the Artisan slider model (`Heat`, `Fan`, `Drum`), applies optional scaling, and exports:
+1. `Template/Event Planner`
+2. `Thermal Model Planner`
 
-- a planned profile for playback (`*.alog`)
-- an optional safety alarm set (`*.alrm`)
+Both modes target the same goal: generate repeatable, executable roast control schedules for Kaleido workflows.
 
-The planner is available from:
+## Planner Modes
 
-- `Tools >> Roast Planner`
+### 1. Template/Event Planner
 
-## What Changed
+Use this mode when you already have a reference roast and want a fast feedforward adaptation.
 
-The planner integration includes:
+It:
 
-- a new planner module (`src/artisanlib/roast_planner.py`)
-- a new menu action (`Tools >> Roast Planner`)
-- export of planned profiles plus optional safety alarms
-- compatibility in profile loading for both legacy Python-literal `.alog` and JSON-formatted `.alog`
+- extracts and normalizes control events (`Heat`, `Fan`, `Drum`) from a source `.alog`
+- scales timing and channel bias for a new batch size
+- exports:
+  - planned playback profile (`*_planned.alog`)
+  - optional safety alarm file (`*_safety.alrm`)
+
+### 2. Thermal Model Planner
+
+Use this mode when you want model-based schedule generation from BT curve targets.
+
+It supports:
+
+- model calibration from Kaleido calibration roasts
+- target curve generation from:
+  - loaded background profile
+  - file-based profile (`.alog`)
+- schedule inversion into heater/fan trajectories
+- alarm schedule export (`.alrm`) and direct apply/store in the live alarm table
 
 ## Prerequisites
 
-Before using the planner on Kaleido:
+Before using either mode:
 
-1. Confirm your machine setup is configured for slider control.
-2. Confirm event sliders are mapped to Kaleido commands:
+1. Confirm machine slider control is configured.
+2. Confirm Kaleido slider mapping:
    - slider 1: `kaleido(HP,{})` (`Heat`)
    - slider 2: `kaleido(FC,{})` (`Fan`)
    - slider 3: `kaleido(RC,{})` (`Drum`)
-3. Validate all control actions in Simulator mode before running a live batch.
-4. Keep independent machine safety limits active.
+3. Validate automation in Simulator before live roasting.
+4. Keep independent machine-level safety limits active.
 
 ## How To Use
 
-1. Open `Tools >> Roast Planner`.
-2. Select a source `.alog` profile.
-3. Enter target batch size in grams.
-   - enter `0` to keep source batch scaling
-4. Enter time scale.
-   - enter `0` to let Artisan compute automatic scaling
-5. Save the planned profile (`*_planned.alog` by default).
-6. Choose whether to generate matching safety alarms.
-   - when enabled, a `*_safety.alrm` file is written next to the planned profile
-7. Choose whether to load the planned profile as background immediately.
+### Template/Event Planner Workflow
 
-## Running A Planned Roast
+1. Open `Tools >> Roast Planner...`.
+2. Select `Template/Event Planner`.
+3. Choose a source `.alog` profile.
+4. Set target batch size in grams (`0` keeps source scaling).
+5. Set time scale (`0` uses automatic scaling).
+6. Save planned profile (`*_planned.alog`).
+7. Optionally export matching safety alarms (`*_safety.alrm`).
+8. Optionally load planned profile as background immediately.
 
-1. Load the planned profile as background (if not already loaded).
-2. Ensure `Playback Events` is enabled.
-3. Select replay mode (time, BT, or ET) as appropriate for your workflow.
-4. Optionally enable event ramping for smoother transitions.
-5. Import the generated alarm set in `Config >> Alarms` (`Load Alarms`) if you exported safety alarms.
-6. Run one simulation pass, then roast live.
+### Thermal Model Planner Workflow
 
-## Safety Alarm Output
+1. Open `Tools >> Roast Planner...`.
+2. Select `Thermal Model Planner`.
+3. `Calibrate` tab:
+   - load 1–3 calibration profiles
+   - fit model
+   - optionally save fitted model JSON
+4. `Generate Schedule` tab:
+   - choose target source (`Background Profile` or `Load from file...`)
+   - set batch mass, fan strategy, and control interval
+   - generate schedule
+5. `Export` tab:
+   - save `.alrm`
+   - apply alarms directly
+   - store schedule into an alarm set slot
 
-When alarm export is enabled, the generated `.alrm` contains:
+## Safety Alarm Behavior
 
-- ET ceiling alarm
-- BT ceiling alarm
-- popup + beep actions for both alarms
+Template/Event safety export creates two popup+beep ceiling alarms:
 
-Ceilings are estimated from profile maxima with a margin unless explicit overrides are supplied in code.
+- ET ceiling
+- BT ceiling
 
-## Notes On Planning Behavior
+The generated `alarmactions` now use the correct Artisan popup action code (`0`).
 
-Current planning is deterministic and event-based:
+## File Compatibility
 
-- source control events are extracted from `specialevents*`
-- legacy Kaleido event mappings are normalized to `Heat/Fan/Drum`
-- batch-size scaling adjusts channel bias and time scaling
-- closely spaced duplicate events are compressed
+The integrated planning stack accepts both profile formats:
 
-This is intended as a practical feedforward baseline that integrates with existing Artisan playback/alarm tooling.
+- legacy Python-literal `.alog`
+- JSON `.alog`
+
+Thermal target profile parsing no longer requires Kaleido extra-device channels; only `timex` + `temp2` are required for target generation.
 
 ## Troubleshooting
 
 - `No usable control events found in profile`
-  - ensure the source profile contains slider control events in `specialevents*`
-- Planned profile loads but does not move machine controls
-  - verify slider actions and Kaleido command mappings in `Config >> Events`
-- Alarm file imports but no alarms trigger
-  - verify alarm enable flags and source channels (`ET`/`BT`) in `Config >> Alarms`
+  - source profile lacks usable `specialevents*` control entries
+- `Failed to parse target profile`
+  - ensure target profile contains valid `timex` and `temp2`
+- Planned profile does not move roaster controls
+  - verify slider action mappings in `Config >> Events`
+- Alarms imported but do not execute
+  - verify alarm enable flags and action mappings in `Config >> Alarms`

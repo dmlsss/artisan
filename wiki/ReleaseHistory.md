@@ -6,14 +6,20 @@ v4.0.3 (unreleased)
 ------------------
 
 * ADDITIONS
-  - adds `Tools >> Roast Planner` to generate feedforward roast plans from existing `.alog` profiles
+  - adds integrated `Tools >> Roast Planner...` mode chooser for template/event feedforward planning and thermal-model schedule planning
   - adds planner export of optional safety alarms (`.alrm`) with ET/BT ceiling popups and beeps
   - adds dedicated planner documentation in [`wiki/RoastPlanner.md`](./RoastPlanner.md)
+  - adds thermal integration tests for target-profile parsing and alarm schedule offsets
   - adds unit tests for planner profile loading, Kaleido event normalization and safety alarm generation
 
 * CHANGES
   - planner normalizes legacy Kaleido control events to Artisan slider channels (`Heat`, `Fan`, `Drum`) for playback
   - profile deserialization now accepts both Python-literal and strict JSON `.alog` formats
+  - thermal target parsing accepts generic `.alog` files via `timex`/`temp2` without requiring Kaleido extra devices
+  - thermal schedule generation uses positive alarm offsets to avoid skipped time-zero control actions
+
+* FIXES
+  - fixes planner safety alarm action mapping to use the correct popup action code
 
 ----
 v4.0.2 (Feb 7, 2026)
