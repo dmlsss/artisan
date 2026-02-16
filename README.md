@@ -45,6 +45,8 @@ If you think Artisan is useful to you, contribute financially to its further dev
 
 [Documentation](https://artisan-scope.org/docs/)
 
+[Roast Planner Guide (Kaleido Feedforward)](https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/RoastPlanner.md)
+
 
 PLEASE FOLLOW AND TAG US!
 &nbsp;&nbsp;&nbsp;&nbsp;<a href="https://www.facebook.com/ArtisanScope"><img src="https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/screenshots/facebook-square.svg?raw=true" width="30"></a>&nbsp;&nbsp;&nbsp;<a href="https://www.instagram.com/artisanscope/"><img src="https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/screenshots/instagram-square.svg?raw=true" width="30"></a>&nbsp;&nbsp;&nbsp;<a href="https://www.youtube.com/channel/UCEp-DH_Y7sBR3-X3FWomgog"><img src="https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/screenshots/youtube-svgrepo-com.svg?raw=true" width="30"></a>&nbsp;&nbsp;&nbsp;<a href="https://masto.ai/@artisan"><img src="https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/screenshots/mastodon-icon-svgrepo-com.svg?raw=true" width="30"></a>&nbsp;&nbsp;&nbsp;<a href="https://www.linkedin.com/company/artisan-plus"><img src="https://github.com/artisan-roaster-scope/artisan/blob/master/wiki/screenshots/linkedin-svgrepo-com.svg?raw=true" width="30"></a>

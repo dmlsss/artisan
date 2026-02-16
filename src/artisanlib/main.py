@@ -213,6 +213,16 @@ from artisanlib.util import (appFrozen, uchr, decodeLocal, decodeLocalStrict, en
         comma2dot, is_proper_temp, weight_units, volume_units, float2float, float2str,
         convertWeight, convertVolume, rgba_colorname2argb_colorname, render_weight, serialize, deserialize, csv_load, exportProfile2CSV, findTPint,
         eventtime2string, toDim)
+from artisanlib.roast_planner import (
+    build_planned_profile,
+    build_safety_alarm_set,
+    get_profile_batch_kg,
+    load_profile_data,
+    log_plan_summary,
+    profile_path_stem,
+    save_alarm_set,
+    save_profile_data,
+)
 
 from artisanlib.qtsingleapplication import QtSingleApplication
 
@@ -1520,7 +1530,7 @@ class ApplicationWindow(QMainWindow):
         'bbp_begin_to_bottom_ror', 'bbp_bottom_to_charge_ror', 'bbp_time_added_from_prev', 'bbp_begin', 'bbp_endroast_epoch_msec', 'bbp_endevents',
         'bbp_dropevents', 'bbp_dropbt', 'bbp_dropet', 'bbp_drop_to_end', 'schedule_day_filter', 'schedule_user_filter', 'schedule_machine_filter',
         'schedule_visible_filter', 'scheduler_tasks_visible', 'scheduler_completed_details_visible', 'scheduler_filters_visible', 'scheduler_auto_open',
-        'main_menu_actions_with_shortcuts', 'ui_mode', 'UIModeMenu',  'productionModeAction', 'defaultModeAction', 'expertModeAction', 'calculatorAction',
+        'main_menu_actions_with_shortcuts', 'ui_mode', 'UIModeMenu',  'productionModeAction', 'defaultModeAction', 'expertModeAction', 'calculatorAction', 'roastPlannerAction',
         'helpAboutAction', 'checkUpdateAction', 'errorAction', 'messageAction', 'serialAction', 'platformAction', 'aboutQtAction',
         'helpDocumentationAction', 'KshortCAction',
         'beginnerMode', 'beginnerModeAction' ]
@@ -2664,6 +2674,9 @@ class ApplicationWindow(QMainWindow):
 
         self.calculatorAction = QAction(QApplication.translate('Menu', 'Calculator'), self)
         self.calculatorAction.triggered.connect(self.calculator)
+
+        self.roastPlannerAction = QAction(QApplication.translate('Menu', 'Roast Planner'), self)
+        self.roastPlannerAction.triggered.connect(self.roastPlanner)
 
         # VIEW menu
 
@@ -4473,6 +4486,7 @@ class ApplicationWindow(QMainWindow):
                 tools_menu.addMenu(self.analyzeMenu)
             tools_menu.addAction(self.roastCompareAction)
             tools_menu.addAction(self.designerAction)
+            tools_menu.addAction(self.roastPlannerAction)
             if ui_mode is UI_MODE.EXPERT:
                 tools_menu.addAction(self.simulatorAction)
                 tools_menu.addAction(self.wheeleditorAction)
@@ -12078,6 +12092,7 @@ class ApplicationWindow(QMainWindow):
             # disable advanced Tools menu items
             self.roastCompareAction.setEnabled(False)
             self.designerAction.setEnabled(False)
+            self.roastPlannerAction.setEnabled(False)
             self.simulatorAction.setEnabled(False)
             self.wheeleditorAction.setEnabled(False)
         else:
@@ -12093,6 +12108,7 @@ class ApplicationWindow(QMainWindow):
             # re-enable advanced Tools menu items
             self.roastCompareAction.setEnabled(True)
             self.designerAction.setEnabled(True)
+            self.roastPlannerAction.setEnabled(True)
             self.simulatorAction.setEnabled(True)
             self.wheeleditorAction.setEnabled(True)
 
@@ -25596,6 +25612,110 @@ class ApplicationWindow(QMainWindow):
         template_path = os.path.join(getResourcePath(), 'Profiles', 'Kaleido', 'Vienna.alog')
         if os.path.isfile(template_path):
             self.loadbackground(template_path)
+            self.qmc.background = True
+            self.qmc.redraw(recomputeAllDeltas=False)
+
+    @pyqtSlot()
+    @pyqtSlot(bool)
+    def roastPlanner(self, _:bool = False) -> None:
+        source_profile_path = self.ArtisanOpenFileDialog(
+            msg=QApplication.translate('Message', 'Select Target Profile'),
+            ext='*.alog')
+        if source_profile_path == '':
+            return
+
+        try:
+            source_profile = load_profile_data(source_profile_path)
+        except Exception as ex: # pylint: disable=broad-except
+            _log.exception(ex)
+            self.sendmessage(QApplication.translate('Message', 'Error loading target profile'))
+            return
+
+        source_batch_kg = get_profile_batch_kg(source_profile)
+        default_batch_g = (round(source_batch_kg * 1000.0, 1) if source_batch_kg is not None else 200.0)
+        target_batch_g, ok = QInputDialog.getDouble(
+            self,
+            QApplication.translate('Message', 'Roast Planner'),
+            QApplication.translate('Message', 'Target batch size [g] (0 keeps source):'),
+            default_batch_g,
+            0.0,
+            5000.0,
+            1)
+        if not ok:
+            return
+
+        time_scale, ok = QInputDialog.getDouble(
+            self,
+            QApplication.translate('Message', 'Roast Planner'),
+            QApplication.translate('Message', 'Time scale (0 uses automatic scaling):'),
+            0.0,
+            0.0,
+            2.0,
+            2)
+        if not ok:
+            return
+
+        default_plan_path = profile_path_stem(source_profile_path) + '_planned.alog'
+        planned_profile_path = self.ArtisanSaveFileDialog(
+            msg=QApplication.translate('Message', 'Save Planned Profile'),
+            ext='*.alog',
+            path=default_plan_path)
+        if planned_profile_path == '':
+            return
+
+        try:
+            planned_profile, summary = build_planned_profile(
+                source_profile,
+                target_batch_kg=(target_batch_g / 1000.0 if target_batch_g > 0 else None),
+                time_scale=(time_scale if time_scale > 0 else None),
+            )
+            save_profile_data(planned_profile_path, planned_profile)
+            log_plan_summary(summary)
+        except Exception as ex: # pylint: disable=broad-except
+            _log.exception(ex)
+            self.sendmessage(QApplication.translate('Message', 'Error generating roast plan'))
+            return
+
+        write_alarms = QMessageBox.question(
+            self,
+            QApplication.translate('Message', 'Roast Planner'),
+            QApplication.translate('Message', 'Generate matching safety alarms?'),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+
+        alarm_path = profile_path_stem(planned_profile_path) + '_safety.alrm'
+        if write_alarms == QMessageBox.StandardButton.Yes:
+            try:
+                alarms = build_safety_alarm_set(planned_profile)
+                save_alarm_set(alarm_path, alarms)
+            except Exception as ex: # pylint: disable=broad-except
+                _log.exception(ex)
+                self.sendmessage(QApplication.translate('Message', 'Planned profile saved, alarm export failed'))
+
+        if write_alarms == QMessageBox.StandardButton.Yes:
+            self.sendmessage(
+                QApplication.translate('Message',
+                    'Plan exported ({0} events, time scale {1:.2f}) to:\n{2}\n{3}').format(
+                        summary.output_event_count,
+                        summary.time_scale,
+                        planned_profile_path,
+                        alarm_path))
+        else:
+            self.sendmessage(
+                QApplication.translate('Message',
+                    'Plan exported ({0} events, time scale {1:.2f}) to:\n{2}').format(
+                        summary.output_event_count,
+                        summary.time_scale,
+                        planned_profile_path))
+
+        load_as_background = QMessageBox.question(
+            self,
+            QApplication.translate('Message', 'Roast Planner'),
+            QApplication.translate('Message', 'Load planned profile as background now?'),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if load_as_background == QMessageBox.StandardButton.Yes:
+            self.loadbackground(planned_profile_path)
             self.qmc.background = True
             self.qmc.redraw(recomputeAllDeltas=False)
 

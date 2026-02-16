@@ -110,6 +110,8 @@ You need to tell Artisan which machine or devices you attached. Startup Artisan 
 
 The serial settings for meters are already configured by Artisan automatically when you select a device for the first time (or when you change devices). The only setting that is not configured is the serial port number being used. To find out your serial port, connect your device/meter and select the correct comm port from the ports popup menu. You can test to see if you have the correct comm port by clicking the green button "ON" on the top of the main window. If you see the two temperatures from the meter come up on the LCDs, you have completed all the configuration steps. You can now start using artisan.
 
+If you are using Kaleido feedforward planning, see the [Roast Planner guide](./RoastPlanner.md) for setup, export flow, and safety instructions.
+
 
 # Further Specific Notes
 

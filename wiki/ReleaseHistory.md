@@ -2,6 +2,20 @@ Detailed Release History
 ========================
 
 ----
+v4.0.3 (unreleased)
+------------------
+
+* ADDITIONS
+  - adds `Tools >> Roast Planner` to generate feedforward roast plans from existing `.alog` profiles
+  - adds planner export of optional safety alarms (`.alrm`) with ET/BT ceiling popups and beeps
+  - adds dedicated planner documentation in [`wiki/RoastPlanner.md`](./RoastPlanner.md)
+  - adds unit tests for planner profile loading, Kaleido event normalization and safety alarm generation
+
+* CHANGES
+  - planner normalizes legacy Kaleido control events to Artisan slider channels (`Heat`, `Fan`, `Drum`) for playback
+  - profile deserialization now accepts both Python-literal and strict JSON `.alog` formats
+
+----
 v4.0.2 (Feb 7, 2026)
 ------------------
 

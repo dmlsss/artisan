@@ -127,6 +127,12 @@ Testing
 # pytest
 ```
 
+Roast Planner tests
+
+```
+# pytest src/test/unitary/artisanlib/test_roast_planner.py
+```
+
 Coverage (types, tests)
 
 ```
