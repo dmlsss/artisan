@@ -39,6 +39,46 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _EPS: Final[float] = 1e-9
+_YELLOWING_BT_C: Final[float] = 150.0
+_FIRST_CRACK_BT_C: Final[float] = 196.0
+_SECOND_CRACK_BT_C: Final[float] = 224.0
+
+
+def _crossing_time(
+    time: NDArray[np.float64],
+    values: NDArray[np.float64],
+    threshold: float,
+) -> float | None:
+    """Return the first timestamp where *values* crosses *threshold*."""
+    if len(time) == 0 or len(values) == 0:
+        return None
+
+    above = values >= threshold
+    if not np.any(above):
+        return None
+
+    idx = int(np.argmax(above))
+    if idx <= 0:
+        return float(time[0])
+
+    t0 = float(time[idx - 1])
+    t1 = float(time[idx])
+    v0 = float(values[idx - 1])
+    v1 = float(values[idx])
+
+    dv = v1 - v0
+    if abs(dv) <= _EPS:
+        return t1
+
+    frac = (threshold - v0) / dv
+    frac = min(1.0, max(0.0, frac))
+    return t0 + frac * (t1 - t0)
+
+
+def _compute_dtr_percent(first_crack_time: float | None, drop_time: float) -> float | None:
+    if first_crack_time is None or first_crack_time >= drop_time or drop_time <= 0:
+        return None
+    return 100.0 * (drop_time - first_crack_time) / drop_time
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +109,11 @@ class InversionResult:
     max_tracking_error: float
     rmse: float
     exo_warning_time: float | None
+    yellowing_time: float | None
+    first_crack_time: float | None
+    second_crack_time: float | None
+    drop_time: float
+    dtr_percent: float | None
 
     # reference kept for resample forward-simulation
     _model: KaleidoThermalModel | None = None
@@ -135,6 +180,11 @@ class InversionResult:
         err = target_bt_resampled - pred_bt
         max_err = float(np.max(np.abs(err)))
         rmse = float(np.sqrt(np.mean(err ** 2)))
+        yellowing_time = _crossing_time(new_time, pred_bt, _YELLOWING_BT_C)
+        first_crack_time = _crossing_time(new_time, pred_bt, _FIRST_CRACK_BT_C)
+        second_crack_time = _crossing_time(new_time, pred_bt, _SECOND_CRACK_BT_C)
+        drop_time = float(new_time[-1])
+        dtr_percent = _compute_dtr_percent(first_crack_time, drop_time)
 
         _log.info(
             'Resampled to %.1f s interval: %d points, '
@@ -151,6 +201,11 @@ class InversionResult:
             max_tracking_error=max_err,
             rmse=rmse,
             exo_warning_time=self.exo_warning_time,
+            yellowing_time=yellowing_time,
+            first_crack_time=first_crack_time,
+            second_crack_time=second_crack_time,
+            drop_time=drop_time,
+            dtr_percent=dtr_percent,
             _model=self._model,
             _mass_kg=self._mass_kg,
             _T0=self._T0,
@@ -330,15 +385,15 @@ def invert_model(
     _log.info('Tracking error: max=%.2f C, RMSE=%.2f C', max_err, rmse)
 
     # ---- Exothermic onset detection -------------------------------------
-    exo_time: float | None = None
-    above_onset = target_bt >= p.T_exo_onset
-    if np.any(above_onset):
-        idx = int(np.argmax(above_onset))  # first True
-        exo_time = float(target_time[idx])
-        _log.info(
-            'Exothermic onset at t=%.1f s (T=%.1f C, threshold=%.1f C)',
-            exo_time, target_bt[idx], p.T_exo_onset,
-        )
+    exo_time = _crossing_time(target_time, predicted_bt, p.T_exo_onset)
+    if exo_time is not None:
+        _log.info('Exothermic onset at t=%.1f s (threshold=%.1f C)', exo_time, p.T_exo_onset)
+
+    yellowing_time = _crossing_time(target_time, predicted_bt, _YELLOWING_BT_C)
+    first_crack_time = _crossing_time(target_time, predicted_bt, _FIRST_CRACK_BT_C)
+    second_crack_time = _crossing_time(target_time, predicted_bt, _SECOND_CRACK_BT_C)
+    drop_time = float(target_time[-1])
+    dtr_percent = _compute_dtr_percent(first_crack_time, drop_time)
 
     return InversionResult(
         time=target_time,
@@ -349,6 +404,11 @@ def invert_model(
         max_tracking_error=max_err,
         rmse=rmse,
         exo_warning_time=exo_time,
+        yellowing_time=yellowing_time,
+        first_crack_time=first_crack_time,
+        second_crack_time=second_crack_time,
+        drop_time=drop_time,
+        dtr_percent=dtr_percent,
         _model=model,
         _mass_kg=mass_kg,
         _T0=T0,

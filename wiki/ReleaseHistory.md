@@ -11,12 +11,21 @@ v4.0.3 (unreleased)
   - adds dedicated planner documentation in [`wiki/RoastPlanner.md`](./RoastPlanner.md)
   - adds thermal integration tests for target-profile parsing and alarm schedule offsets
   - adds unit tests for planner profile loading, Kaleido event normalization and safety alarm generation
+  - adds thermal planner trigger-mode selection (`Time from CHARGE` or `BT temperature`)
+  - adds thermal planner optional drum schedule automation (`Off`, `Constant`, `Ramp`)
+  - adds control deadband filtering (`Min control change`) to reduce noisy schedule chatter
+  - adds milestone popup alarms (`Yellowing`, `First Crack`, `Drop`) for generated thermal schedules
+  - adds thermal planner estimate reporting for Yellowing/FC/Drop and DTR%
+  - adds thermal planner optional BT/ET safety popup alarms to generated schedules
+  - adds CLI support for trigger mode, drum schedule, milestone toggles, deadband, and safety ceilings in `thermal_model_cli generate`
+  - adds thermal inversion milestone unit tests (`test_thermal_model_inversion.py`)
 
 * CHANGES
   - planner normalizes legacy Kaleido control events to Artisan slider channels (`Heat`, `Fan`, `Drum`) for playback
   - profile deserialization now accepts both Python-literal and strict JSON `.alog` formats
   - thermal target parsing accepts generic `.alog` files via `timex`/`temp2` without requiring Kaleido extra devices
   - thermal schedule generation uses positive alarm offsets to avoid skipped time-zero control actions
+  - thermal background-target generation now normalizes Fahrenheit mode to Celsius before inversion
 
 * FIXES
   - fixes planner safety alarm action mapping to use the correct popup action code

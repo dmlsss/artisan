@@ -3,7 +3,13 @@ from pathlib import Path
 
 import numpy as np
 
-from artisanlib.thermal_alarm_generator import ACTION_FAN, ACTION_HEATER, generate_alarm_table
+from artisanlib.thermal_alarm_generator import (
+    ACTION_DRUM,
+    ACTION_FAN,
+    ACTION_HEATER,
+    ACTION_POPUP,
+    generate_alarm_table,
+)
 from artisanlib.thermal_control_dlg import _cap_calibration_file_selection
 from artisanlib.thermal_profile_parser import parse_alog_profile, parse_target_profile
 
@@ -85,6 +91,56 @@ def test_generate_alarm_table_uses_positive_offsets_for_time_based_actions() -> 
     assert all(offset >= 1 for offset in alarms.alarmoffset)
     assert any(action == ACTION_HEATER for action in alarms.alarmaction)
     assert any(action == ACTION_FAN for action in alarms.alarmaction)
+
+
+def test_generate_alarm_table_bt_trigger_with_drum_and_deadband() -> None:
+    alarms = generate_alarm_table(
+        time=np.array([0.0, 10.0, 20.0, 30.0], dtype=np.float64),
+        heater_pct=np.array([70.0, 71.0, 72.0, 78.0], dtype=np.float64),
+        fan_pct=np.array([30.0, 30.0, 31.0, 35.0], dtype=np.float64),
+        drum_pct=np.array([55.0, 55.0, 56.0, 60.0], dtype=np.float64),
+        trigger_mode='bt',
+        bt_profile=np.array([90.0, 110.0, 130.0, 150.0], dtype=np.float64),
+        min_delta_pct=3,
+    )
+
+    # BT trigger mode should set alarmtime=-1 for control rows.
+    control_rows = [
+        i for i, action in enumerate(alarms.alarmaction)
+        if action in {ACTION_HEATER, ACTION_FAN, ACTION_DRUM}
+    ]
+    assert control_rows
+    assert all(alarms.alarmtime[i] == -1 for i in control_rows)
+    assert all(alarms.alarmoffset[i] == 0 for i in control_rows)
+
+    # Deadband should suppress tiny changes (71/72 and 31/56 do not emit).
+    heater_values = [alarms.alarmstrings[i] for i in control_rows if alarms.alarmaction[i] == ACTION_HEATER]
+    fan_values = [alarms.alarmstrings[i] for i in control_rows if alarms.alarmaction[i] == ACTION_FAN]
+    drum_values = [alarms.alarmstrings[i] for i in control_rows if alarms.alarmaction[i] == ACTION_DRUM]
+    assert heater_values == ['70', '78']
+    assert fan_values == ['30', '35']
+    assert drum_values == ['55', '60']
+
+
+def test_generate_alarm_table_adds_milestones_and_safety_alarms() -> None:
+    alarms = generate_alarm_table(
+        time=np.array([0.0, 10.0], dtype=np.float64),
+        heater_pct=np.array([75.0, 60.0], dtype=np.float64),
+        fan_pct=np.array([30.0, 40.0], dtype=np.float64),
+        milestone_offsets={'First Crack': 420.0, 'Drop': 510.0},
+        bt_safety_ceiling=225.0,
+        et_safety_ceiling=255.0,
+    )
+
+    popup_labels = [
+        alarms.alarmstrings[i]
+        for i, action in enumerate(alarms.alarmaction)
+        if action == ACTION_POPUP
+    ]
+    assert 'First Crack target reached' in popup_labels
+    assert 'Drop target reached' in popup_labels
+    assert 'BT safety ceiling' in popup_labels
+    assert 'ET safety ceiling' in popup_labels
 
 
 def test_cap_calibration_file_selection_respects_total_limit() -> None:

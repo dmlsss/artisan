@@ -24,6 +24,7 @@ import os
 from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialogButtonBox,
     QFileDialog,
@@ -303,6 +304,52 @@ class ThermalControlDlg(ArtisanDialog):
         self.fan_ramp_widget.setVisible(False)
         settings_layout.addWidget(self.fan_ramp_widget)
 
+        # Drum strategy
+        drum_row = QHBoxLayout()
+        drum_row.addWidget(QLabel(QApplication.translate('Label', 'Drum strategy:')))
+        self.drum_strategy_combo = QComboBox()
+        self.drum_strategy_combo.addItem(QApplication.translate('ComboBox', 'Off'))
+        self.drum_strategy_combo.addItem(QApplication.translate('ComboBox', 'Constant'))
+        self.drum_strategy_combo.addItem(QApplication.translate('ComboBox', 'Ramp'))
+        self.drum_strategy_combo.currentIndexChanged.connect(self._on_drum_strategy_changed)
+        drum_row.addWidget(self.drum_strategy_combo)
+        drum_row.addStretch()
+        settings_layout.addLayout(drum_row)
+
+        # Drum constant value
+        self.drum_constant_row = QHBoxLayout()
+        self.drum_constant_row.addWidget(QLabel(QApplication.translate('Label', 'Drum %:')))
+        self.drum_constant_spin = QSpinBox()
+        self.drum_constant_spin.setRange(0, 100)
+        self.drum_constant_spin.setValue(60)
+        self.drum_constant_spin.setSuffix(' %')
+        self.drum_constant_row.addWidget(self.drum_constant_spin)
+        self.drum_constant_row.addStretch()
+        self.drum_constant_widget = QWidget()
+        self.drum_constant_widget.setLayout(self.drum_constant_row)
+        self.drum_constant_widget.setVisible(False)
+        settings_layout.addWidget(self.drum_constant_widget)
+
+        # Drum ramp values
+        self.drum_ramp_row = QHBoxLayout()
+        self.drum_ramp_row.addWidget(QLabel(QApplication.translate('Label', 'Start %:')))
+        self.drum_ramp_start_spin = QSpinBox()
+        self.drum_ramp_start_spin.setRange(0, 100)
+        self.drum_ramp_start_spin.setValue(55)
+        self.drum_ramp_start_spin.setSuffix(' %')
+        self.drum_ramp_row.addWidget(self.drum_ramp_start_spin)
+        self.drum_ramp_row.addWidget(QLabel(QApplication.translate('Label', 'End %:')))
+        self.drum_ramp_end_spin = QSpinBox()
+        self.drum_ramp_end_spin.setRange(0, 100)
+        self.drum_ramp_end_spin.setValue(75)
+        self.drum_ramp_end_spin.setSuffix(' %')
+        self.drum_ramp_row.addWidget(self.drum_ramp_end_spin)
+        self.drum_ramp_row.addStretch()
+        self.drum_ramp_widget = QWidget()
+        self.drum_ramp_widget.setLayout(self.drum_ramp_row)
+        self.drum_ramp_widget.setVisible(False)
+        settings_layout.addWidget(self.drum_ramp_widget)
+
         # Control interval
         interval_row = QHBoxLayout()
         interval_row.addWidget(QLabel(QApplication.translate('Label', 'Control interval:')))
@@ -314,6 +361,49 @@ class ThermalControlDlg(ArtisanDialog):
         interval_row.addWidget(self.interval_combo)
         interval_row.addStretch()
         settings_layout.addLayout(interval_row)
+
+        trigger_row = QHBoxLayout()
+        trigger_row.addWidget(QLabel(QApplication.translate('Label', 'Trigger mode:')))
+        self.trigger_mode_combo = QComboBox()
+        self.trigger_mode_combo.addItem(QApplication.translate('ComboBox', 'Time from CHARGE'), 'time')
+        self.trigger_mode_combo.addItem(QApplication.translate('ComboBox', 'BT temperature'), 'bt')
+        trigger_row.addWidget(self.trigger_mode_combo)
+        trigger_row.addStretch()
+        settings_layout.addLayout(trigger_row)
+
+        deadband_row = QHBoxLayout()
+        deadband_row.addWidget(QLabel(QApplication.translate('Label', 'Min control change:')))
+        self.min_delta_spin = QSpinBox()
+        self.min_delta_spin.setRange(1, 20)
+        self.min_delta_spin.setValue(2)
+        self.min_delta_spin.setSuffix(' %')
+        deadband_row.addWidget(self.min_delta_spin)
+        deadband_row.addStretch()
+        settings_layout.addLayout(deadband_row)
+
+        options_row = QHBoxLayout()
+        self.milestone_checkbox = QCheckBox(QApplication.translate('CheckBox', 'Add milestone popups'))
+        self.milestone_checkbox.setChecked(True)
+        options_row.addWidget(self.milestone_checkbox)
+        self.safety_checkbox = QCheckBox(QApplication.translate('CheckBox', 'Add safety ceilings'))
+        self.safety_checkbox.setChecked(True)
+        options_row.addWidget(self.safety_checkbox)
+        options_row.addStretch()
+        settings_layout.addLayout(options_row)
+
+        safety_row = QHBoxLayout()
+        safety_row.addWidget(QLabel(QApplication.translate('Label', 'BT max (C):')))
+        self.bt_safety_spin = QSpinBox()
+        self.bt_safety_spin.setRange(120, 260)
+        self.bt_safety_spin.setValue(230)
+        safety_row.addWidget(self.bt_safety_spin)
+        safety_row.addWidget(QLabel(QApplication.translate('Label', 'ET max (C):')))
+        self.et_safety_spin = QSpinBox()
+        self.et_safety_spin.setRange(140, 320)
+        self.et_safety_spin.setValue(260)
+        safety_row.addWidget(self.et_safety_spin)
+        safety_row.addStretch()
+        settings_layout.addLayout(safety_row)
 
         settings_group.setLayout(settings_layout)
         layout.addWidget(settings_group)
@@ -395,6 +485,13 @@ class ThermalControlDlg(ArtisanDialog):
         self.save_alrm_button.setEnabled(has_alarms)
         self.apply_alarms_button.setEnabled(has_alarms)
         self.store_alarm_set_button.setEnabled(has_alarms)
+
+    @staticmethod
+    def _format_mmss(value_s: float | None) -> str:
+        if value_s is None:
+            return '--'
+        total = max(0, int(round(value_s)))
+        return f'{total // 60}:{total % 60:02d}'
 
     # ===================================================================
     # Calibrate tab slots
@@ -608,6 +705,12 @@ class ThermalControlDlg(ArtisanDialog):
         self.fan_constant_widget.setVisible(index == 0)
         self.fan_ramp_widget.setVisible(index == 1)
 
+    @pyqtSlot(int)
+    def _on_drum_strategy_changed(self, index: int) -> None:
+        # 0=Off, 1=Constant, 2=Ramp
+        self.drum_constant_widget.setVisible(index == 1)
+        self.drum_ramp_widget.setVisible(index == 2)
+
     @pyqtSlot()
     def _on_generate(self) -> None:
         if self.model is None:
@@ -628,6 +731,10 @@ class ThermalControlDlg(ArtisanDialog):
                 return
             target_time = np.array(timeB, dtype=np.float64)
             target_bt = np.array(temp2B, dtype=np.float64)
+            mode = str(getattr(self.aw.qmc, 'mode', 'C')).upper()
+            if mode == 'F':
+                valid = np.isfinite(target_bt) & (target_bt != -1.0)
+                target_bt[valid] = (target_bt[valid] - 32.0) * (5.0 / 9.0)
         else:
             # Loaded file
             filepath = self.target_source_combo.itemData(1)
@@ -662,6 +769,25 @@ class ThermalControlDlg(ArtisanDialog):
             end_pct = float(self.fan_ramp_end_spin.value())
             fan_schedule = np.linspace(start_pct, end_pct, len(target_time))
 
+        # ── Build drum schedule ───────────────────────────────────────
+        drum_schedule: np.ndarray | float | None
+        drum_mode = self.drum_strategy_combo.currentIndex()
+        if drum_mode == 0:
+            drum_schedule = None
+        elif drum_mode == 1:
+            drum_schedule = float(self.drum_constant_spin.value())
+        else:
+            drum_schedule = np.linspace(
+                float(self.drum_ramp_start_spin.value()),
+                float(self.drum_ramp_end_spin.value()),
+                len(target_time),
+            )
+
+        trigger_mode = str(self.trigger_mode_combo.currentData())
+        min_delta_pct = int(self.min_delta_spin.value())
+        add_milestones = self.milestone_checkbox.isChecked()
+        add_safety = self.safety_checkbox.isChecked()
+
         # ── Run inversion ─────────────────────────────────────────────
         try:
             self.aw.sendmessage(QApplication.translate('StatusBar', 'Generating schedule...'))
@@ -678,12 +804,28 @@ class ThermalControlDlg(ArtisanDialog):
             resampled = inv_result.resample_to_interval(interval_s)
             self.inversion_result = resampled
 
+            milestone_offsets: dict[str, float] | None = None
+            if add_milestones:
+                milestone_offsets = {}
+                if resampled.yellowing_time is not None:
+                    milestone_offsets['Yellowing'] = resampled.yellowing_time
+                if resampled.first_crack_time is not None:
+                    milestone_offsets['First Crack'] = resampled.first_crack_time
+                milestone_offsets['Drop'] = resampled.drop_time
+
             # Generate alarm table
             self.alarm_data = generate_alarm_table(
                 time=resampled.time,
                 heater_pct=resampled.heater_pct,
                 fan_pct=resampled.fan_pct,
                 exo_warning_time=resampled.exo_warning_time,
+                drum_pct=drum_schedule,
+                min_delta_pct=min_delta_pct,
+                trigger_mode=('bt' if trigger_mode == 'bt' else 'time'),
+                bt_profile=(resampled.predicted_bt if trigger_mode == 'bt' else None),
+                milestone_offsets=milestone_offsets,
+                bt_safety_ceiling=(float(self.bt_safety_spin.value()) if add_safety else None),
+                et_safety_ceiling=(float(self.et_safety_spin.value()) if add_safety else None),
             )
 
             # Show results
@@ -692,13 +834,27 @@ class ThermalControlDlg(ArtisanDialog):
             lines.append(f'Alarm count: {self.alarm_data.alarm_count()}')
             lines.append(f'Max tracking error: {resampled.max_tracking_error:.2f} C')
             lines.append(f'RMSE: {resampled.rmse:.2f} C')
+            lines.append(
+                f'Trigger mode: {"BT temperature" if trigger_mode == "bt" else "Time from CHARGE"}'
+            )
+            lines.append(f'Min control change: {min_delta_pct}%')
+            lines.append(f'Yellowing estimate: {self._format_mmss(resampled.yellowing_time)}')
+            lines.append(f'First crack estimate: {self._format_mmss(resampled.first_crack_time)}')
+            lines.append(f'Drop estimate: {self._format_mmss(resampled.drop_time)}')
+            if resampled.dtr_percent is not None:
+                lines.append(f'DTR estimate: {resampled.dtr_percent:.1f}%')
             lines.append(f'Schedule: {desc}')
             self.generate_results_text.setPlainText('\n'.join(lines))
 
             self._update_button_states()
             self.aw.sendmessage(
-                QApplication.translate('StatusBar', 'Schedule generated: {0} alarms, RMSE={1:.2f} C').format(
-                    self.alarm_data.alarm_count(), resampled.rmse
+                QApplication.translate(
+                    'StatusBar',
+                    'Schedule generated: {0} alarms, RMSE={1:.2f} C ({2})',
+                ).format(
+                    self.alarm_data.alarm_count(),
+                    resampled.rmse,
+                    'BT trigger' if trigger_mode == 'bt' else 'time trigger',
                 )
             )
         except Exception as e:  # pylint: disable=broad-except

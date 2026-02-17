@@ -132,6 +132,7 @@ Roast Planner tests
 ```
 # pytest src/test/unitary/artisanlib/test_roast_planner.py
 # pytest src/test/unitary/artisanlib/test_thermal_integration.py
+# pytest src/test/unitary/artisanlib/test_thermal_model_inversion.py
 ```
 
 Coverage (types, tests)

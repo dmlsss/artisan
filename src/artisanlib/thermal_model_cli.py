@@ -180,6 +180,13 @@ def _plot_fit(result: FitResult, profiles: list) -> None:
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     """Generate alarm schedule from target profile using model inversion."""
+    if args.min_delta < 1:
+        print('Error: --min-delta must be >= 1', file=sys.stderr)
+        return 1
+    if args.drum > 100 or args.drum < -1:
+        print('Error: --drum must be in [0,100] or -1 to disable', file=sys.stderr)
+        return 1
+
     # Load model
     print(f'Loading model from: {args.model}')
     params = ThermalModelParams.load(args.model)
@@ -196,6 +203,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     mass_kg = args.mass / 1000.0  # CLI takes grams, model uses kg
     print(f'Batch mass: {args.mass} g ({mass_kg:.4f} kg)')
     print(f'Fan setting: {args.fan}%')
+    if args.drum >= 0:
+        print(f'Drum setting: {args.drum}%')
+    else:
+        print('Drum setting: off')
+    print(f'Trigger mode: {args.trigger_mode}')
+    print(f'Min control change: {args.min_delta}%')
     print(f'Resample interval: {args.interval} s')
 
     # Invert model
@@ -213,6 +226,11 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
     if inv_result.exo_warning_time is not None:
         print(f'Exothermic onset: {_format_time(inv_result.exo_warning_time)}')
+    if inv_result.first_crack_time is not None:
+        print(f'Estimated first crack: {_format_time(inv_result.first_crack_time)}')
+    print(f'Estimated drop: {_format_time(inv_result.drop_time)}')
+    if inv_result.dtr_percent is not None:
+        print(f'Estimated DTR: {inv_result.dtr_percent:.1f}%')
 
     # Resample to desired interval
     print(f'\nResampling to {args.interval}s interval...')
@@ -222,11 +240,27 @@ def _cmd_generate(args: argparse.Namespace) -> int:
           f'max error={resampled.max_tracking_error:.2f} C')
 
     # Generate alarms
+    milestone_offsets: dict[str, float] | None = None
+    if not args.no_milestones:
+        milestone_offsets = {}
+        if resampled.yellowing_time is not None:
+            milestone_offsets['Yellowing'] = resampled.yellowing_time
+        if resampled.first_crack_time is not None:
+            milestone_offsets['First Crack'] = resampled.first_crack_time
+        milestone_offsets['Drop'] = resampled.drop_time
+
     alarms = generate_alarm_table(
         time=resampled.time,
         heater_pct=resampled.heater_pct,
         fan_pct=resampled.fan_pct,
         exo_warning_time=inv_result.exo_warning_time,
+        drum_pct=(None if args.drum < 0 else float(args.drum)),
+        min_delta_pct=int(args.min_delta),
+        trigger_mode=args.trigger_mode,
+        bt_profile=(resampled.predicted_bt if args.trigger_mode == 'bt' else None),
+        milestone_offsets=milestone_offsets,
+        bt_safety_ceiling=args.bt_max,
+        et_safety_ceiling=args.et_max,
     )
 
     # Print schedule description
@@ -459,6 +493,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument(
         '--fan', type=float, default=30.0,
         help='Constant fan percentage (default: 30).',
+    )
+    p_gen.add_argument(
+        '--drum', type=float, default=-1.0,
+        help='Constant drum percentage (0-100). Use -1 to disable (default: -1).',
+    )
+    p_gen.add_argument(
+        '--trigger-mode', choices=['time', 'bt'], default='time',
+        help='Control trigger mode: time or BT threshold (default: time).',
+    )
+    p_gen.add_argument(
+        '--min-delta', type=int, default=2,
+        help='Minimum control change (%%) required to emit a new alarm (default: 2).',
+    )
+    p_gen.add_argument(
+        '--no-milestones', action='store_true',
+        help='Disable milestone popup alarms (yellowing/first crack/drop).',
+    )
+    p_gen.add_argument(
+        '--bt-max', type=float, default=None,
+        help='Optional BT safety ceiling popup alarm in C.',
+    )
+    p_gen.add_argument(
+        '--et-max', type=float, default=None,
+        help='Optional ET safety ceiling popup alarm in C.',
     )
     p_gen.add_argument(
         '--interval', type=float, default=10.0,

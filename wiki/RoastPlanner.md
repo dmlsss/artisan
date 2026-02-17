@@ -34,6 +34,13 @@ It supports:
   - loaded background profile
   - file-based profile (`.alog`)
 - schedule inversion into heater/fan trajectories
+- trigger modes:
+  - time-triggered (`CHARGE + seconds`)
+  - BT-triggered (control action on BT threshold crossings)
+- optional drum control schedule (`Off`, `Constant`, `Ramp`)
+- deadband filtering via minimum control-change threshold
+- optional milestone popups (`Yellowing`, `First Crack`, `Drop`)
+- optional BT/ET safety-ceiling popup alarms
 - alarm schedule export (`.alrm`) and direct apply/store in the live alarm table
 
 ## Prerequisites
@@ -71,12 +78,28 @@ Before using either mode:
    - optionally save fitted model JSON
 4. `Generate Schedule` tab:
    - choose target source (`Background Profile` or `Load from file...`)
-   - set batch mass, fan strategy, and control interval
+   - set batch mass, fan strategy, and optional drum strategy
+   - select trigger mode (`Time from CHARGE` or `BT temperature`)
+   - set control deadband (`Min control change`)
+   - optionally enable milestone and safety popup alarms
+   - choose control interval
    - generate schedule
 5. `Export` tab:
    - save `.alrm`
    - apply alarms directly
    - store schedule into an alarm set slot
+
+### Thermal CLI (optional)
+
+Use `thermal_model_cli generate` when you want to build schedules outside the GUI.
+
+Example:
+
+```bash
+python -m artisanlib.thermal_model_cli generate model.json target.alog \
+  --mass 120 --fan 35 --drum 60 --trigger-mode bt --min-delta 3 \
+  --bt-max 225 --et-max 255 -o thermal_schedule.alrm
+```
 
 ## Safety Alarm Behavior
 
@@ -96,6 +119,7 @@ The integrated planning stack accepts both profile formats:
 
 Thermal target profile parsing no longer requires Kaleido extra-device channels; only `timex` + `temp2` are required for target generation.
 Thermal target and calibration profile temperatures are normalized to Celsius when source profiles are stored in Fahrenheit mode.
+Background-profile targets in Fahrenheit mode are converted to Celsius before inversion.
 
 ## Troubleshooting
 
@@ -109,3 +133,7 @@ Thermal target and calibration profile temperatures are normalized to Celsius wh
   - verify slider action mappings in `Config >> Events`
 - Alarms imported but do not execute
   - verify alarm enable flags and action mappings in `Config >> Alarms`
+- BT-trigger schedule behaves late or early
+  - confirm BT probe lag and use `Time from CHARGE` mode if your probe dynamics are unstable
+- Too many control alarms
+  - increase `Min control change` to suppress tiny step updates
