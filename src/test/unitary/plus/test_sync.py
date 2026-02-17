@@ -226,6 +226,15 @@ sys.modules['plus.controller'].is_connected = Mock(return_value=True) # type: ig
 # Import the sync module after setting up mocks
 from plus import sync
 
+# Restore global import state immediately after loading the module under test.
+# The tests patch sync internals directly, so keeping sys.modules mocks active
+# would contaminate unrelated test modules that need real PyQt/imports.
+for module_name in modules_to_isolate:
+    if module_name in _original_modules:
+        sys.modules[module_name] = _original_modules[module_name]
+    elif module_name in sys.modules and hasattr(sys.modules[module_name], '_mock_name'):
+        del sys.modules[module_name]
+
 
 # Session-level isolation fixture
 @pytest.fixture(scope='session', autouse=True)

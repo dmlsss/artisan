@@ -57,6 +57,14 @@ def getSyncPath(lock: bool = False) -> str:
     return getDirectory(fn, share=True)
 
 
+def _flush_lock_handle(fh:IO[str]) -> None:
+    fh.flush()
+    try:
+        os.fsync(fh.fileno())
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
 def addSyncShelve(uuid: str, modified_at:float, fh:IO[str]) -> None:
     _log.debug('addSyncShelve(%s,%s,_fh_)', uuid, modified_at)
     import dbm
@@ -96,8 +104,7 @@ def addSyncShelve(uuid: str, modified_at:float, fh:IO[str]) -> None:
         except Exception as ex:  # pylint: disable=broad-except
             _log.exception(ex)
     finally:
-        fh.flush()
-        os.fsync(fh.fileno())
+        _flush_lock_handle(fh)
 
 
 # register the modified_at timestamp (EPOC as float with milliseoncds)
@@ -155,8 +162,7 @@ def getSync(uuid:str) -> float|None:
                 _log.exception(e)
                 return None
             finally:
-                fh.flush()
-                os.fsync(fh.fileno())
+                _flush_lock_handle(fh)
     except portalocker.exceptions.LockException as e:
         _log.exception(e)
         # we couldn't fetch this lock. It seems to be blocked forever
@@ -180,8 +186,7 @@ def getSync(uuid:str) -> float|None:
                 _log.exception(ex)
                 return None
             finally:
-                fh.flush()
-                os.fsync(fh.fileno())
+                _flush_lock_handle(fh)
     except Exception as e:  # pylint: disable=broad-except
         _log.exception(e)
         return None
@@ -204,8 +209,7 @@ def delSync(uuid:str) -> None:
             except Exception:  # pylint: disable=broad-except
                 pass # fails if uuid is not in db
             finally:
-                fh.flush()
-                os.fsync(fh.fileno())
+                _flush_lock_handle(fh)
     except portalocker.exceptions.LockException as e:
         _log.exception(e)
         # we couldn't fetch this lock. It seems to be blocked forever
@@ -222,8 +226,7 @@ def delSync(uuid:str) -> None:
             except Exception as ex:  # pylint: disable=broad-except
                 _log.exception(ex)
             finally:
-                fh.flush()
-                os.fsync(fh.fileno())
+                _flush_lock_handle(fh)
     except Exception as e:  # pylint: disable=broad-except
         _log.exception(e)
     finally:
