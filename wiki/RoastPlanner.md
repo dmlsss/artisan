@@ -95,6 +95,7 @@ The integrated planning stack accepts both profile formats:
 - JSON `.alog`
 
 Thermal target profile parsing no longer requires Kaleido extra-device channels; only `timex` + `temp2` are required for target generation.
+Thermal target and calibration profile temperatures are normalized to Celsius when source profiles are stored in Fahrenheit mode.
 
 ## Troubleshooting
 
@@ -102,6 +103,8 @@ Thermal target profile parsing no longer requires Kaleido extra-device channels;
   - source profile lacks usable `specialevents*` control entries
 - `Failed to parse target profile`
   - ensure target profile contains valid `timex` and `temp2`
+- Thermal fit behaves inconsistently between profiles
+  - verify profile temperature unit (`C`/`F`) is set correctly in source logs; the parser uses it for normalization
 - Planned profile does not move roaster controls
   - verify slider action mappings in `Config >> Events`
 - Alarms imported but do not execute

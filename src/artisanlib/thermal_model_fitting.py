@@ -156,6 +156,29 @@ def _compute_metrics(
     return rmse, max_error, r_squared, per_roast_rmse, all_residuals, all_predicted
 
 
+def _weighted_residual_objective(residuals_by_roast: list[NDArray]) -> float:
+    """Return weighted mean-squared error across roasts.
+
+    Each roast contributes by its fraction of total samples, so each sample
+    is weighted once overall (equivalent to global MSE over concatenated data).
+    """
+    if not residuals_by_roast:
+        raise ValueError('residuals_by_roast must not be empty')
+
+    total_points = sum(len(resid) for resid in residuals_by_roast)
+    if total_points <= 0:
+        raise ValueError('residuals_by_roast contains no sample points')
+
+    objective = 0.0
+    for resid in residuals_by_roast:
+        n_pts = len(resid)
+        if n_pts <= 0:
+            continue
+        weight = n_pts / total_points
+        objective += weight * float(np.mean(resid ** 2))
+    return objective
+
+
 # ---------------------------------------------------------------------------
 # Main fitting routine
 # ---------------------------------------------------------------------------
@@ -218,8 +241,9 @@ def fit_model(
 
     bounds_ordered = _bounds_list(bounds)
 
-    # Pre-compute per-roast weights (proportional to number of points)
     total_points = sum(len(c.time) for c in calibration_data)
+    if total_points <= 0:
+        raise ValueError('calibration_data contains no sample points')
 
     _log.info(
         'Starting thermal model fit: %d roast(s), %d total points',
@@ -230,20 +254,17 @@ def fit_model(
     _PENALTY: Final[float] = 1e10
 
     def cost(x: NDArray) -> float:
-        """Sum of squared residuals, weighted by per-roast point count."""
+        """Weighted MSE across calibration roasts."""
         try:
             params = ThermalModelParams.from_vector(x, m_ref=m_ref)
             model = KaleidoThermalModel(params)
-            sse = 0.0
+            residuals: list[NDArray] = []
             for calib in calibration_data:
                 pred = _simulate_roast(model, calib)
                 measured = np.asarray(calib.bt, dtype=np.float64)
                 resid = pred - measured
-                n_pts = len(resid)
-                # Weight: fraction of total points this roast contributes
-                weight = n_pts / total_points
-                sse += weight * float(np.sum(resid ** 2))
-            return sse
+                residuals.append(resid)
+            return _weighted_residual_objective(residuals)
         except Exception:  # noqa: BLE001
             _log.debug('Simulation failed during optimisation', exc_info=True)
             return _PENALTY

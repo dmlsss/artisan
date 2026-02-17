@@ -20,6 +20,9 @@ v4.0.3 (unreleased)
 
 * FIXES
   - fixes planner safety alarm action mapping to use the correct popup action code
+  - converts thermal-model calibration and target profile temperatures from Fahrenheit to Celsius when needed
+  - corrects thermal fitting objective weighting so long roasts do not get overweighted
+  - enforces the calibration profile limit as a total cap in the thermal control dialog
 
 ----
 v4.0.2 (Feb 7, 2026)

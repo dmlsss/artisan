@@ -49,8 +49,8 @@ class CalibrationData:
     """Synchronised timeseries extracted from a single roast profile."""
 
     time:       npt.NDArray[np.float64]  # seconds, rebased to 0 at CHARGE
-    bt:         npt.NDArray[np.float64]  # bean temperature (°C or °F)
-    et:         npt.NDArray[np.float64]  # environment temperature
+    bt:         npt.NDArray[np.float64]  # bean temperature (deg C)
+    et:         npt.NDArray[np.float64]  # environment temperature (deg C)
     heater_pct: npt.NDArray[np.float64]  # heater power 0–100
     fan_pct:    npt.NDArray[np.float64]  # fan speed 0–100
     drum_pct:   npt.NDArray[np.float64]  # drum speed 0–100
@@ -63,7 +63,7 @@ class TargetCurveData:
     """Target BT curve extracted from a roast profile."""
 
     time: npt.NDArray[np.float64]       # seconds, rebased to 0 at CHARGE/start
-    bt: npt.NDArray[np.float64]         # bean temperature (C/F as stored)
+    bt: npt.NDArray[np.float64]         # bean temperature (deg C)
     batch_mass_kg: float                # green-bean charge weight in kg
     source_file: str = field(default='')
 
@@ -218,6 +218,23 @@ def _batch_mass_kg(profile: dict) -> float:
     return value * factor
 
 
+def _to_celsius_if_needed(
+    values: npt.NDArray[np.float64],
+    mode: str,
+) -> npt.NDArray[np.float64]:
+    """Convert profile temperatures to deg C when profile mode is Fahrenheit.
+
+    Maintains ``-1`` sentinel values used by Artisan for missing readings.
+    """
+    if mode.upper() != 'F':
+        return values
+
+    converted = values.copy()
+    valid = np.isfinite(converted) & (converted != -1.0)
+    converted[valid] = (converted[valid] - 32.0) * (5.0 / 9.0)
+    return converted
+
+
 # ── public API ───────────────────────────────────────────────────────
 
 
@@ -244,6 +261,7 @@ def parse_alog_profile(filepath: str) -> CalibrationData:
     """
     _log.info('Parsing profile: %s', filepath)
     profile = _load_profile(filepath)
+    mode = str(profile.get('mode', 'C')).upper()
 
     # ── main channels ────────────────────────────────────────────────
     timex_raw = profile.get('timex')
@@ -280,8 +298,8 @@ def parse_alog_profile(filepath: str) -> CalibrationData:
             _KALEIDO_DRUM_DEVICE)
         drum = np.zeros_like(main_timex)
 
-    et = np.asarray(temp1_raw, dtype=np.float64)
-    bt = np.asarray(temp2_raw, dtype=np.float64)
+    et = _to_celsius_if_needed(np.asarray(temp1_raw, dtype=np.float64), mode)
+    bt = _to_celsius_if_needed(np.asarray(temp2_raw, dtype=np.float64), mode)
 
     # Ensure lengths match the main time grid
     n = len(main_timex)
@@ -312,6 +330,7 @@ def parse_target_profile(filepath: str) -> TargetCurveData:
     """
     _log.info('Parsing target curve profile: %s', filepath)
     profile = _load_profile(filepath)
+    mode = str(profile.get('mode', 'C')).upper()
 
     timex_raw = profile.get('timex')
     temp2_raw = profile.get('temp2')
@@ -319,7 +338,7 @@ def parse_target_profile(filepath: str) -> TargetCurveData:
         raise ValueError('Profile is missing timex or temp2')
 
     timex = np.asarray(timex_raw, dtype=np.float64)
-    bt = np.asarray(temp2_raw, dtype=np.float64)
+    bt = _to_celsius_if_needed(np.asarray(temp2_raw, dtype=np.float64), mode)
     n = min(len(timex), len(bt))
     if n < 2:
         raise ValueError('Profile must contain at least two BT samples')

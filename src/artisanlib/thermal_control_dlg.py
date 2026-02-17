@@ -59,6 +59,20 @@ if TYPE_CHECKING:
     from artisanlib.main import ApplicationWindow  # pylint: disable=unused-import
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
+_MAX_CALIBRATION_PROFILES: Final[int] = 3
+
+
+def _cap_calibration_file_selection(
+    current_count: int,
+    selected_files: list[str],
+    max_profiles: int = _MAX_CALIBRATION_PROFILES,
+) -> tuple[list[str], bool]:
+    """Cap selected file list so total loaded profiles never exceeds *max_profiles*."""
+    if current_count >= max_profiles:
+        return [], len(selected_files) > 0
+    available = max_profiles - current_count
+    capped = selected_files[:available]
+    return capped, len(capped) < len(selected_files)
 
 
 # ---------------------------------------------------------------------------
@@ -397,9 +411,13 @@ class ThermalControlDlg(ArtisanDialog):
         if not files:
             return
 
-        # Limit to 3 profiles
-        if len(files) > 3:
-            files = files[:3]
+        files, limited = _cap_calibration_file_selection(len(self.calibration_data), files)
+        if not files:
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'Maximum of 3 calibration profiles already loaded')
+            )
+            return
+        if limited:
             self.aw.sendmessage(QApplication.translate('StatusBar', 'Limited to 3 calibration profiles'))
 
         for fp in files:
