@@ -19,6 +19,7 @@ def test_invert_model_exposes_milestone_fields_and_resample_updates_drop_time() 
 
     assert result.drop_time == float(target_time[-1])
     assert result.yellowing_time is not None
+    assert len(result.drum_pct) == len(target_time)
     if np.max(result.predicted_bt) >= 196.0:
         assert result.first_crack_time is not None
     assert result.dtr_percent is None or result.dtr_percent >= 0.0
@@ -26,3 +27,29 @@ def test_invert_model_exposes_milestone_fields_and_resample_updates_drop_time() 
     resampled = result.resample_to_interval(30.0)
     assert resampled.drop_time == float(resampled.time[-1])
     assert resampled.dtr_percent is None or resampled.dtr_percent >= 0.0
+    assert len(resampled.drum_pct) == len(resampled.time)
+
+
+def test_invert_model_can_optimize_fan_and_drum() -> None:
+    model = KaleidoThermalModel(ThermalModelParams())
+    target_time = np.linspace(0.0, 360.0, 25, dtype=np.float64)
+    target_bt = np.linspace(90.0, 215.0, 25, dtype=np.float64)
+
+    result = invert_model(
+        model=model,
+        target_time=target_time,
+        target_bt=target_bt,
+        mass_kg=0.10,
+        fan_schedule=30.0,
+        drum_schedule=60.0,
+        optimize_actuators=True,
+        optimizer_iterations=2,
+        optimizer_segments=6,
+        optimizer_step_pct=6,
+    )
+
+    assert result.objective_score is not None
+    assert np.all(result.fan_pct >= 0.0)
+    assert np.all(result.fan_pct <= 100.0)
+    assert np.all(result.drum_pct >= 0.0)
+    assert np.all(result.drum_pct <= 100.0)

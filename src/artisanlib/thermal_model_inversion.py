@@ -1,6 +1,6 @@
 #
 # ABOUT
-# Invert the lumped-parameter thermal ODE model to compute heater%/fan%
+# Invert the lumped-parameter thermal ODE model to compute heater%/fan%/drum%
 # schedules that reproduce a target bean-temperature (BT) curve on the
 # Kaleido M1 Lite coffee roaster.
 
@@ -81,33 +81,37 @@ def _compute_dtr_percent(first_crack_time: float | None, drop_time: float) -> fl
     return 100.0 * (drop_time - first_crack_time) / drop_time
 
 
+def _as_schedule_array(
+    value: NDArray[np.float64] | float | None,
+    length: int,
+    default: float,
+) -> NDArray[np.float64]:
+    """Normalize scalar/array optional schedule inputs to a numpy array."""
+    if value is None:
+        return np.full(length, float(default), dtype=np.float64)
+    if isinstance(value, (int, float)):
+        return np.full(length, float(value), dtype=np.float64)
+    return np.asarray(value, dtype=np.float64)
+
+
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class InversionResult:
-    """Result of inverting the thermal model for a target BT curve.
-
-    Attributes:
-        time: Time grid in seconds from CHARGE.
-        heater_pct: Computed heater-% schedule (0-100).
-        fan_pct: Fan-% schedule (given or co-optimised).
-        predicted_bt: Forward-simulated BT from the computed controls.
-        tracking_error: ``target_bt - predicted_bt`` at each time point.
-        max_tracking_error: Maximum absolute tracking error (deg C).
-        rmse: Root-mean-square tracking error (deg C).
-        exo_warning_time: Time (s) when BT first crosses ``T_exo_onset``,
-            or ``None`` if it never does.
-    """
+    """Result of inverting the thermal model for a target BT curve."""
 
     time: NDArray[np.float64]
     heater_pct: NDArray[np.float64]
     fan_pct: NDArray[np.float64]
+    drum_pct: NDArray[np.float64]
     predicted_bt: NDArray[np.float64]
     tracking_error: NDArray[np.float64]
     max_tracking_error: float
     rmse: float
+    objective_score: float | None
     exo_warning_time: float | None
     yellowing_time: float | None
     first_crack_time: float | None
@@ -115,38 +119,18 @@ class InversionResult:
     drop_time: float
     dtr_percent: float | None
 
-    # reference kept for resample forward-simulation
+    # references kept for resample forward-simulation
     _model: KaleidoThermalModel | None = None
     _mass_kg: float | None = None
     _T0: float | None = None
     _target_bt: NDArray[np.float64] | None = None
 
-    # ------------------------------------------------------------------
-    # Resampling
-    # ------------------------------------------------------------------
-
     def resample_to_interval(self, interval_s: float) -> InversionResult:
-        """Resample schedules to a fixed time interval.
-
-        Creates a new uniform time grid spaced by *interval_s* seconds,
-        interpolates the heater and fan schedules onto it, rounds the
-        control values to integers (Kaleido only accepts int 0–100), and
-        re-runs a forward simulation to recompute tracking error.
-
-        Args:
-            interval_s: Desired time spacing in seconds (e.g. 10.0).
-
-        Returns:
-            A new :class:`InversionResult` on the resampled grid.
-
-        Raises:
-            RuntimeError: If the result was created without the internal
-                model reference needed for re-simulation.
-        """
+        """Resample schedules to a fixed time interval."""
         if self._model is None or self._mass_kg is None or self._T0 is None:
             msg = (
                 'Cannot resample: InversionResult was created without '
-                'an internal model reference.  Use invert_model() to '
+                'an internal model reference. Use invert_model() to '
                 'produce resample-capable results.'
             )
             raise RuntimeError(msg)
@@ -157,25 +141,28 @@ class InversionResult:
 
         new_hp = np.round(np.interp(new_time, self.time, self.heater_pct))
         new_hp = np.clip(new_hp, 0.0, 100.0)
-
         new_fan = np.round(np.interp(new_time, self.time, self.fan_pct))
         new_fan = np.clip(new_fan, 0.0, 100.0)
+        new_drum = np.round(np.interp(new_time, self.time, self.drum_pct))
+        new_drum = np.clip(new_drum, 0.0, 100.0)
 
-        # Forward-simulate with the resampled integer controls
         pred_bt = self._model.simulate(
             time=new_time,
             hp_schedule=new_hp,
             fan_schedule=new_fan,
+            drum_schedule=new_drum,
             T0=self._T0,
             mass_kg=self._mass_kg,
         )
 
-        # Interpolate original target BT onto new grid for error calc
         if self._target_bt is not None:
             target_bt_resampled = np.interp(new_time, self.time, self._target_bt)
         else:
-            target_bt_resampled = np.interp(new_time, self.time,
-                                            self.predicted_bt + self.tracking_error)
+            target_bt_resampled = np.interp(
+                new_time,
+                self.time,
+                self.predicted_bt + self.tracking_error,
+            )
 
         err = target_bt_resampled - pred_bt
         max_err = float(np.max(np.abs(err)))
@@ -186,20 +173,16 @@ class InversionResult:
         drop_time = float(new_time[-1])
         dtr_percent = _compute_dtr_percent(first_crack_time, drop_time)
 
-        _log.info(
-            'Resampled to %.1f s interval: %d points, '
-            'max_err=%.2f C, RMSE=%.2f C',
-            interval_s, len(new_time), max_err, rmse,
-        )
-
         return InversionResult(
             time=new_time,
             heater_pct=new_hp,
             fan_pct=new_fan,
+            drum_pct=new_drum,
             predicted_bt=pred_bt,
             tracking_error=err,
             max_tracking_error=max_err,
             rmse=rmse,
+            objective_score=self.objective_score,
             exo_warning_time=self.exo_warning_time,
             yellowing_time=yellowing_time,
             first_crack_time=first_crack_time,
@@ -214,35 +197,203 @@ class InversionResult:
 
 
 # ---------------------------------------------------------------------------
-# Moving-average smoothing helper
+# Helpers
 # ---------------------------------------------------------------------------
 
+
 def _moving_average(arr: NDArray[np.float64], window: int) -> NDArray[np.float64]:
-    """Apply a centred moving-average filter.
-
-    Uses ``numpy.convolve`` with a uniform kernel.  The output has the
-    same length as *arr* (``mode='same'``), so edge values are computed
-    with a shorter effective window.
-
-    Args:
-        arr: 1-D input array.
-        window: Kernel width (clamped to an odd number >= 1).
-
-    Returns:
-        Smoothed copy of *arr*.
-    """
+    """Apply a centred moving-average filter."""
     window = max(1, window)
     if window % 2 == 0:
-        window += 1  # ensure odd for centred smoothing
+        window += 1
     if window <= 1 or len(arr) <= window:
         return arr.copy()
     kernel = np.ones(window, dtype=np.float64) / window
     return np.convolve(arr, kernel, mode='same')
 
 
+def _compute_heater_schedule(
+    model: KaleidoThermalModel,
+    target_bt: NDArray[np.float64],
+    dBTdt: NDArray[np.float64],
+    fan_arr: NDArray[np.float64],
+    drum_arr: NDArray[np.float64],
+    mass_kg: float,
+    hp_min: int,
+    hp_max: int,
+    smoothing_window: int,
+) -> NDArray[np.float64]:
+    p = model.params
+    mass_scale = mass_kg / max(p.m_ref, _EPS)
+    mA_eff = p.mA * mass_scale
+    hp_raw = np.empty(len(target_bt), dtype=np.float64)
+
+    for i, T in enumerate(target_bt):
+        fan = fan_arr[i]
+        drum = drum_arr[i]
+        cp = max(p.cp0 + p.cp1 * T, _EPS)
+        needed_heat = mA_eff * cp * dBTdt[i]
+
+        sig_arg = (T - p.T_exo_onset) / max(p.T_exo_width, _EPS)
+        Q_exo = p.q_exo * float(_safe_sigmoid(sig_arg))
+
+        h_eff = max(p.h0 + p.h1 * fan + p.h2 * drum, _EPS)
+        k_hp = max(abs(p.k_hp), _EPS)
+
+        # Algebraic solution for hp%:
+        # hp = [(needed_heat - Q_exo) / h_eff - T_amb + k_fan * fan + T] / k_hp
+        hp = ((needed_heat - Q_exo) / h_eff - p.T_amb + p.k_fan * fan + T) / k_hp
+        hp_raw[i] = hp
+
+    hp_smooth = _moving_average(hp_raw, smoothing_window)
+    return np.clip(hp_smooth, hp_min, hp_max)
+
+
+def _segment_edges(length: int, requested_segments: int) -> NDArray[np.int_]:
+    segments = max(2, min(requested_segments, max(2, length // 8)))
+    edges = np.linspace(0, length, segments + 1, dtype=int)
+    for i in range(1, len(edges)):
+        if edges[i] <= edges[i - 1]:
+            edges[i] = edges[i - 1] + 1
+    edges[-1] = length
+    return edges
+
+
+def _segment_levels(arr: NDArray[np.float64], edges: NDArray[np.int_]) -> NDArray[np.float64]:
+    levels = np.zeros(len(edges) - 1, dtype=np.float64)
+    for i in range(len(levels)):
+        s, e = int(edges[i]), int(edges[i + 1])
+        levels[i] = float(np.mean(arr[s:e])) if e > s else float(arr[min(s, len(arr) - 1)])
+    return levels
+
+
+def _expand_levels(
+    levels: NDArray[np.float64],
+    edges: NDArray[np.int_],
+    length: int,
+) -> NDArray[np.float64]:
+    arr = np.zeros(length, dtype=np.float64)
+    for i, level in enumerate(levels):
+        s, e = int(edges[i]), int(edges[i + 1])
+        arr[s:e] = level
+    return arr
+
+
+def _compute_objective(
+    target_bt: NDArray[np.float64],
+    predicted_bt: NDArray[np.float64],
+    hp: NDArray[np.float64],
+    fan: NDArray[np.float64],
+    drum: NDArray[np.float64],
+    smoothness_weight: float,
+) -> float:
+    err = target_bt - predicted_bt
+    mse = float(np.mean(err ** 2))
+    hp_smooth = float(np.mean(np.abs(np.diff(hp)))) if len(hp) > 1 else 0.0
+    fan_smooth = float(np.mean(np.abs(np.diff(fan)))) if len(fan) > 1 else 0.0
+    drum_smooth = float(np.mean(np.abs(np.diff(drum)))) if len(drum) > 1 else 0.0
+    smooth_penalty = hp_smooth + 0.35 * fan_smooth + 0.25 * drum_smooth
+    return mse + smoothness_weight * smooth_penalty
+
+
+def _optimize_fan_and_drum(
+    model: KaleidoThermalModel,
+    target_time: NDArray[np.float64],
+    target_bt: NDArray[np.float64],
+    dBTdt: NDArray[np.float64],
+    mass_kg: float,
+    fan_init: NDArray[np.float64],
+    drum_init: NDArray[np.float64],
+    *,
+    hp_min: int,
+    hp_max: int,
+    fan_min: int,
+    fan_max: int,
+    drum_min: int,
+    drum_max: int,
+    smoothing_window: int,
+    optimizer_segments: int,
+    optimizer_iterations: int,
+    optimizer_step_pct: int,
+    smoothness_weight: float,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], float]:
+    """Coordinate-descent optimizer over piecewise fan/drum schedules."""
+    n = len(target_time)
+    edges = _segment_edges(n, optimizer_segments)
+    fan_levels = _segment_levels(fan_init, edges)
+    drum_levels = _segment_levels(drum_init, edges)
+
+    def evaluate(
+        f_levels: NDArray[np.float64],
+        d_levels: NDArray[np.float64],
+    ) -> tuple[float, NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        fan = np.clip(_expand_levels(f_levels, edges, n), fan_min, fan_max)
+        drum = np.clip(_expand_levels(d_levels, edges, n), drum_min, drum_max)
+        hp = _compute_heater_schedule(
+            model=model,
+            target_bt=target_bt,
+            dBTdt=dBTdt,
+            fan_arr=fan,
+            drum_arr=drum,
+            mass_kg=mass_kg,
+            hp_min=hp_min,
+            hp_max=hp_max,
+            smoothing_window=smoothing_window,
+        )
+        pred = model.simulate(
+            time=target_time,
+            hp_schedule=hp,
+            fan_schedule=fan,
+            drum_schedule=drum,
+            T0=float(target_bt[0]),
+            mass_kg=mass_kg,
+        )
+        obj = _compute_objective(target_bt, pred, hp, fan, drum, smoothness_weight)
+        return obj, hp, fan, drum, pred
+
+    best_obj, best_hp, best_fan, best_drum, best_pred = evaluate(fan_levels, drum_levels)
+    step = max(1, int(optimizer_step_pct))
+
+    for _ in range(max(1, optimizer_iterations)):
+        improved = False
+        for seg in range(len(fan_levels)):
+            for channel in ('fan', 'drum'):
+                for delta in (-step, step):
+                    if channel == 'fan':
+                        trial_fan = fan_levels.copy()
+                        trial_fan[seg] = np.clip(trial_fan[seg] + delta, fan_min, fan_max)
+                        trial_drum = drum_levels
+                    else:
+                        trial_drum = drum_levels.copy()
+                        trial_drum[seg] = np.clip(trial_drum[seg] + delta, drum_min, drum_max)
+                        trial_fan = fan_levels
+
+                    trial_obj, trial_hp, trial_fan_arr, trial_drum_arr, trial_pred = evaluate(
+                        trial_fan,
+                        trial_drum,
+                    )
+                    if trial_obj + 1e-9 < best_obj:
+                        best_obj = trial_obj
+                        best_hp = trial_hp
+                        best_fan = trial_fan_arr
+                        best_drum = trial_drum_arr
+                        best_pred = trial_pred
+                        fan_levels = trial_fan.copy()
+                        drum_levels = trial_drum.copy()
+                        improved = True
+        if not improved:
+            if step > 1:
+                step = max(1, step // 2)
+            else:
+                break
+
+    return best_hp, best_fan, best_drum, best_pred, float(best_obj)
+
+
 # ---------------------------------------------------------------------------
 # Model inversion
 # ---------------------------------------------------------------------------
+
 
 def invert_model(
     model: KaleidoThermalModel,
@@ -250,49 +401,21 @@ def invert_model(
     target_bt: NDArray[np.float64],
     mass_kg: float,
     fan_schedule: NDArray[np.float64] | float = 30.0,
+    drum_schedule: NDArray[np.float64] | float | None = None,
     hp_min: int = 0,
     hp_max: int = 100,
     fan_min: int = 0,
     fan_max: int = 100,
+    drum_min: int = 0,
+    drum_max: int = 100,
     smoothing_window: int = 5,
+    optimize_actuators: bool = False,
+    optimizer_iterations: int = 3,
+    optimizer_segments: int = 8,
+    optimizer_step_pct: int = 8,
+    smoothness_weight: float = 0.02,
 ) -> InversionResult:
-    """Invert the thermal model to find a heater-% schedule.
-
-    Given a target bean-temperature curve, algebraically solves for the
-    heater-% at every time point that would reproduce the desired rate
-    of temperature change under the lumped-parameter ODE model.
-
-    The derivation starts from the energy balance::
-
-        m_eff * cp(T) * dT/dt = h_eff * (T_env - T) + Q_exo
-
-    Solving for ``hp%``::
-
-        hp = [(needed_heat - Q_exo) / h_eff
-              - T_amb + k_fan * fan + T] / k_hp
-
-    where ``needed_heat = m_eff * cp(T) * dBT_target/dt`` and
-    ``m_eff = mA * (mass_kg / m_ref)``.
-
-    Args:
-        model: Calibrated :class:`KaleidoThermalModel`.
-        target_time: 1-D array of time points (seconds from CHARGE).
-        target_bt: 1-D array of target bean temperatures (deg C).
-        mass_kg: Batch mass in kg.
-        fan_schedule: Either a scalar (constant fan-%) or a 1-D array
-            of fan-% values aligned with *target_time*.
-        hp_min: Minimum allowed heater-% (default 0).
-        hp_max: Maximum allowed heater-% (default 100).
-        fan_min: Minimum allowed fan-% (default 0).
-        fan_max: Maximum allowed fan-% (default 100).
-        smoothing_window: Width of the moving-average kernel applied to
-            ``dBT/dt`` and to the computed heater-% schedule to reduce
-            chatter (default 5).
-
-    Returns:
-        An :class:`InversionResult` with the computed schedules, the
-        forward-simulated BT, and tracking-error metrics.
-    """
+    """Invert the thermal model to find actuator schedules."""
     target_time = np.asarray(target_time, dtype=np.float64)
     target_bt = np.asarray(target_bt, dtype=np.float64)
 
@@ -304,91 +427,79 @@ def invert_model(
         )
         raise ValueError(msg)
 
-    p = model.params
-
-    # ---- Fan schedule ---------------------------------------------------
-    if isinstance(fan_schedule, (int, float)):
-        fan_arr = np.full(n, float(fan_schedule), dtype=np.float64)
-    else:
-        fan_arr = np.asarray(fan_schedule, dtype=np.float64)
-        if len(fan_arr) != n:
-            msg = (
-                f'fan_schedule length ({len(fan_arr)}) does not match '
-                f'target_time length ({n})'
-            )
-            raise ValueError(msg)
+    fan_arr = _as_schedule_array(fan_schedule, n, default=30.0)
+    drum_arr = _as_schedule_array(drum_schedule, n, default=0.0)
+    if len(fan_arr) != n:
+        raise ValueError(
+            f'fan_schedule length ({len(fan_arr)}) does not match target_time length ({n})'
+        )
+    if len(drum_arr) != n:
+        raise ValueError(
+            f'drum_schedule length ({len(drum_arr)}) does not match target_time length ({n})'
+        )
     fan_arr = np.clip(fan_arr, fan_min, fan_max)
+    drum_arr = np.clip(drum_arr, drum_min, drum_max)
 
-    # ---- Compute dBT/dt from target curve -------------------------------
     dBTdt = np.gradient(target_bt, target_time)
     dBTdt = _moving_average(dBTdt, smoothing_window)
 
-    # ---- Effective thermal mass -----------------------------------------
-    mass_scale = mass_kg / max(p.m_ref, _EPS)
-    mA_eff = p.mA * mass_scale
+    objective_score: float | None = None
+    if optimize_actuators:
+        hp, fan_arr, drum_arr, predicted_bt, objective_score = _optimize_fan_and_drum(
+            model=model,
+            target_time=target_time,
+            target_bt=target_bt,
+            dBTdt=dBTdt,
+            mass_kg=mass_kg,
+            fan_init=fan_arr,
+            drum_init=drum_arr,
+            hp_min=hp_min,
+            hp_max=hp_max,
+            fan_min=fan_min,
+            fan_max=fan_max,
+            drum_min=drum_min,
+            drum_max=drum_max,
+            smoothing_window=smoothing_window,
+            optimizer_segments=optimizer_segments,
+            optimizer_iterations=optimizer_iterations,
+            optimizer_step_pct=optimizer_step_pct,
+            smoothness_weight=smoothness_weight,
+        )
+    else:
+        hp = _compute_heater_schedule(
+            model=model,
+            target_bt=target_bt,
+            dBTdt=dBTdt,
+            fan_arr=fan_arr,
+            drum_arr=drum_arr,
+            mass_kg=mass_kg,
+            hp_min=hp_min,
+            hp_max=hp_max,
+            smoothing_window=smoothing_window,
+        )
+        predicted_bt = model.simulate(
+            time=target_time,
+            hp_schedule=hp,
+            fan_schedule=fan_arr,
+            drum_schedule=drum_arr,
+            T0=float(target_bt[0]),
+            mass_kg=mass_kg,
+        )
+        objective_score = _compute_objective(
+            target_bt=target_bt,
+            predicted_bt=predicted_bt,
+            hp=hp,
+            fan=fan_arr,
+            drum=drum_arr,
+            smoothness_weight=smoothness_weight,
+        )
 
-    # ---- Algebraic inversion at each time point -------------------------
-    hp_raw = np.empty(n, dtype=np.float64)
-
-    for i in range(n):
-        T = target_bt[i]
-        fan = fan_arr[i]
-
-        # Temperature-dependent specific heat (clamped away from zero)
-        cp = max(p.cp0 + p.cp1 * T, _EPS)
-
-        # Needed energy input rate (W-equivalent) to achieve dBT/dt
-        needed_heat = mA_eff * cp * dBTdt[i]
-
-        # Exothermic heat release
-        sig_arg = (T - p.T_exo_onset) / max(p.T_exo_width, _EPS)
-        Q_exo = p.q_exo * float(_safe_sigmoid(sig_arg))
-
-        # Effective heat-transfer coefficient (clamped away from zero)
-        h_eff = max(p.h0 + p.h1 * fan, _EPS)
-
-        # Effective heater-power gain (clamped away from zero)
-        k_hp = max(abs(p.k_hp), _EPS)
-
-        # Algebraic solution for hp%:
-        #   hp = [(needed_heat - Q_exo) / h_eff
-        #         - T_amb + k_fan * fan + T] / k_hp
-        hp = ((needed_heat - Q_exo) / h_eff - p.T_amb + p.k_fan * fan + T) / k_hp
-        hp_raw[i] = hp
-
-    # ---- Smooth and clip the heater schedule ----------------------------
-    hp_smooth = _moving_average(hp_raw, smoothing_window)
-    hp_clipped = np.clip(hp_smooth, hp_min, hp_max)
-
-    _log.info(
-        'Inversion complete: hp range [%.1f, %.1f], mean %.1f',
-        float(np.min(hp_clipped)),
-        float(np.max(hp_clipped)),
-        float(np.mean(hp_clipped)),
-    )
-
-    # ---- Forward-simulate to get predicted BT ---------------------------
-    T0 = float(target_bt[0])
-    predicted_bt = model.simulate(
-        time=target_time,
-        hp_schedule=hp_clipped,
-        fan_schedule=fan_arr,
-        T0=T0,
-        mass_kg=mass_kg,
-    )
-
-    # ---- Tracking error -------------------------------------------------
     err = target_bt - predicted_bt
     max_err = float(np.max(np.abs(err)))
     rmse = float(np.sqrt(np.mean(err ** 2)))
 
-    _log.info('Tracking error: max=%.2f C, RMSE=%.2f C', max_err, rmse)
-
-    # ---- Exothermic onset detection -------------------------------------
+    p = model.params
     exo_time = _crossing_time(target_time, predicted_bt, p.T_exo_onset)
-    if exo_time is not None:
-        _log.info('Exothermic onset at t=%.1f s (threshold=%.1f C)', exo_time, p.T_exo_onset)
-
     yellowing_time = _crossing_time(target_time, predicted_bt, _YELLOWING_BT_C)
     first_crack_time = _crossing_time(target_time, predicted_bt, _FIRST_CRACK_BT_C)
     second_crack_time = _crossing_time(target_time, predicted_bt, _SECOND_CRACK_BT_C)
@@ -397,12 +508,14 @@ def invert_model(
 
     return InversionResult(
         time=target_time,
-        heater_pct=hp_clipped,
+        heater_pct=hp,
         fan_pct=fan_arr,
+        drum_pct=drum_arr,
         predicted_bt=predicted_bt,
         tracking_error=err,
         max_tracking_error=max_err,
         rmse=rmse,
+        objective_score=objective_score,
         exo_warning_time=exo_time,
         yellowing_time=yellowing_time,
         first_crack_time=first_crack_time,
@@ -411,6 +524,6 @@ def invert_model(
         dtr_percent=dtr_percent,
         _model=model,
         _mass_kg=mass_kg,
-        _T0=T0,
+        _T0=float(target_bt[0]),
         _target_bt=target_bt,
     )

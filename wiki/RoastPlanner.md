@@ -34,13 +34,22 @@ It supports:
   - loaded background profile
   - file-based profile (`.alog`)
 - schedule inversion into heater/fan trajectories
+- optional joint fan+drum optimisation during inversion
 - trigger modes:
   - time-triggered (`CHARGE + seconds`)
   - BT-triggered (control action on BT threshold crossings)
+- BT trigger hardening:
+  - hysteresis (`BT hysteresis`)
+  - minimum trigger spacing (`BT min gap`)
 - optional drum control schedule (`Off`, `Constant`, `Ramp`)
 - deadband filtering via minimum control-change threshold
 - optional milestone popups (`Yellowing`, `First Crack`, `Drop`)
 - optional BT/ET safety-ceiling popup alarms
+- dry-run schedule safety validation (BT / ET / RoR) before export/apply/store
+- quality scoring and milestone delta reporting (target vs predicted)
+- interoperability exports:
+  - Artisan thermal-plan JSON
+  - HiBean-style replay CSV
 - alarm schedule export (`.alrm`) and direct apply/store in the live alarm table
 
 ## Prerequisites
@@ -79,15 +88,20 @@ Before using either mode:
 4. `Generate Schedule` tab:
    - choose target source (`Background Profile` or `Load from file...`)
    - set batch mass, fan strategy, and optional drum strategy
+   - optionally enable `Jointly optimize fan + drum` and set `Passes`
    - select trigger mode (`Time from CHARGE` or `BT temperature`)
+   - for BT mode, tune `BT hysteresis` and `BT min gap` to reduce chatter
    - set control deadband (`Min control change`)
    - optionally enable milestone and safety popup alarms
+   - set dry-run safety limits (`BT max`, `ET max`, `RoR max`)
+   - keep `Validate schedule before export` enabled for enforcement
    - choose control interval
    - generate schedule
 5. `Export` tab:
    - save `.alrm`
    - apply alarms directly
    - store schedule into an alarm set slot
+   - save interop JSON / HiBean CSV exports
 
 ### Thermal CLI (optional)
 
@@ -97,8 +111,18 @@ Example:
 
 ```bash
 python -m artisanlib.thermal_model_cli generate model.json target.alog \
-  --mass 120 --fan 35 --drum 60 --trigger-mode bt --min-delta 3 \
-  --bt-max 225 --et-max 255 -o thermal_schedule.alrm
+  --mass 120 --fan 35 --drum 60 --optimize-actuators \
+  --trigger-mode bt --min-delta 3 --bt-hysteresis 1.0 --bt-min-gap 2.0 \
+  --bt-max 225 --et-max 255 --max-ror 30 \
+  --interop-json thermal_schedule.json --hibean-csv thermal_schedule.csv \
+  -o thermal_schedule.alrm
+```
+
+Convert an external interop schedule into `.alrm`:
+
+```bash
+python -m artisanlib.thermal_model_cli interop-convert \
+  incoming_schedule.json converted_schedule.alrm --format auto
 ```
 
 ## Safety Alarm Behavior
@@ -110,6 +134,8 @@ Template/Event safety export creates two popup+beep ceiling alarms:
 
 The generated `alarmactions` now use the correct Artisan popup action code (`0`).
 
+Thermal planner export/apply/store actions can be blocked by dry-run validation if limits are exceeded.
+
 ## File Compatibility
 
 The integrated planning stack accepts both profile formats:
@@ -120,6 +146,10 @@ The integrated planning stack accepts both profile formats:
 Thermal target profile parsing no longer requires Kaleido extra-device channels; only `timex` + `temp2` are required for target generation.
 Thermal target and calibration profile temperatures are normalized to Celsius when source profiles are stored in Fahrenheit mode.
 Background-profile targets in Fahrenheit mode are converted to Celsius before inversion.
+Interop adapter formats:
+
+- `artisan-thermal-plan-v1` JSON
+- HiBean-style replay CSV (`time_s,bt_trigger_c,heater_pct,fan_pct,drum_pct`)
 
 ## Troubleshooting
 
@@ -135,5 +165,9 @@ Background-profile targets in Fahrenheit mode are converted to Celsius before in
   - verify alarm enable flags and action mappings in `Config >> Alarms`
 - BT-trigger schedule behaves late or early
   - confirm BT probe lag and use `Time from CHARGE` mode if your probe dynamics are unstable
+- BT-trigger schedule fires too often
+  - increase `BT hysteresis` and `BT min gap`
 - Too many control alarms
   - increase `Min control change` to suppress tiny step updates
+- Safety validation fails
+  - reduce heat/fan/drum aggressiveness, increase batch size realism, or adjust target curve slope

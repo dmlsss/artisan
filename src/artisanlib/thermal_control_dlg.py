@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QDialogButtonBox,
     QFileDialog,
     QGroupBox,
@@ -34,6 +35,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QProgressBar,
     QPushButton,
+    QMessageBox,
     QSpinBox,
     QTabWidget,
     QTextEdit,
@@ -47,10 +49,17 @@ from artisanlib.thermal_alarm_generator import (
     generate_alarm_table,
     generate_schedule_description,
 )
+from artisanlib.thermal_interop import (
+    export_artisan_plan_json,
+    export_hibean_csv,
+    schedule_from_inversion,
+)
 from artisanlib.thermal_model import KaleidoThermalModel, ThermalModelParams
 from artisanlib.thermal_model_fitting import FitResult, fit_model
 from artisanlib.thermal_model_inversion import InversionResult, invert_model
+from artisanlib.thermal_planner_quality import QualityReport, build_quality_report
 from artisanlib.thermal_profile_parser import CalibrationData, parse_alog_profile, parse_target_profile
+from artisanlib.thermal_schedule_validator import SafetyValidationResult, validate_schedule
 
 import numpy as np
 
@@ -124,6 +133,9 @@ class ThermalControlDlg(ArtisanDialog):
         self.fit_result: FitResult | None = None
         self.inversion_result: InversionResult | None = None
         self.alarm_data: AlarmTableData | None = None
+        self.safety_validation: SafetyValidationResult | None = None
+        self.quality_report: QualityReport | None = None
+        self.generated_trigger_mode: str = 'time'
         self._fit_worker: FitWorker | None = None
 
         # ── tabs ───────────────────────────────────────────────────────
@@ -367,9 +379,31 @@ class ThermalControlDlg(ArtisanDialog):
         self.trigger_mode_combo = QComboBox()
         self.trigger_mode_combo.addItem(QApplication.translate('ComboBox', 'Time from CHARGE'), 'time')
         self.trigger_mode_combo.addItem(QApplication.translate('ComboBox', 'BT temperature'), 'bt')
+        self.trigger_mode_combo.currentIndexChanged.connect(self._on_trigger_mode_changed)
         trigger_row.addWidget(self.trigger_mode_combo)
         trigger_row.addStretch()
         settings_layout.addLayout(trigger_row)
+
+        self.bt_trigger_hardening_row = QHBoxLayout()
+        self.bt_trigger_hardening_row.addWidget(QLabel(QApplication.translate('Label', 'BT hysteresis (C):')))
+        self.bt_hysteresis_spin = QDoubleSpinBox()
+        self.bt_hysteresis_spin.setRange(0.0, 20.0)
+        self.bt_hysteresis_spin.setDecimals(1)
+        self.bt_hysteresis_spin.setSingleStep(0.5)
+        self.bt_hysteresis_spin.setValue(1.0)
+        self.bt_trigger_hardening_row.addWidget(self.bt_hysteresis_spin)
+        self.bt_trigger_hardening_row.addWidget(QLabel(QApplication.translate('Label', 'BT min gap (C):')))
+        self.bt_min_gap_spin = QDoubleSpinBox()
+        self.bt_min_gap_spin.setRange(0.0, 30.0)
+        self.bt_min_gap_spin.setDecimals(1)
+        self.bt_min_gap_spin.setSingleStep(0.5)
+        self.bt_min_gap_spin.setValue(2.0)
+        self.bt_trigger_hardening_row.addWidget(self.bt_min_gap_spin)
+        self.bt_trigger_hardening_row.addStretch()
+        self.bt_trigger_hardening_widget = QWidget()
+        self.bt_trigger_hardening_widget.setLayout(self.bt_trigger_hardening_row)
+        self.bt_trigger_hardening_widget.setVisible(False)
+        settings_layout.addWidget(self.bt_trigger_hardening_widget)
 
         deadband_row = QHBoxLayout()
         deadband_row.addWidget(QLabel(QApplication.translate('Label', 'Min control change:')))
@@ -388,8 +422,27 @@ class ThermalControlDlg(ArtisanDialog):
         self.safety_checkbox = QCheckBox(QApplication.translate('CheckBox', 'Add safety ceilings'))
         self.safety_checkbox.setChecked(True)
         options_row.addWidget(self.safety_checkbox)
+        self.validate_schedule_checkbox = QCheckBox(
+            QApplication.translate('CheckBox', 'Validate schedule before export')
+        )
+        self.validate_schedule_checkbox.setChecked(True)
+        options_row.addWidget(self.validate_schedule_checkbox)
         options_row.addStretch()
         settings_layout.addLayout(options_row)
+
+        optimization_row = QHBoxLayout()
+        self.optimize_actuators_checkbox = QCheckBox(
+            QApplication.translate('CheckBox', 'Jointly optimize fan + drum')
+        )
+        self.optimize_actuators_checkbox.setChecked(True)
+        optimization_row.addWidget(self.optimize_actuators_checkbox)
+        optimization_row.addWidget(QLabel(QApplication.translate('Label', 'Passes:')))
+        self.optimizer_passes_spin = QSpinBox()
+        self.optimizer_passes_spin.setRange(1, 8)
+        self.optimizer_passes_spin.setValue(3)
+        optimization_row.addWidget(self.optimizer_passes_spin)
+        optimization_row.addStretch()
+        settings_layout.addLayout(optimization_row)
 
         safety_row = QHBoxLayout()
         safety_row.addWidget(QLabel(QApplication.translate('Label', 'BT max (C):')))
@@ -402,6 +455,13 @@ class ThermalControlDlg(ArtisanDialog):
         self.et_safety_spin.setRange(140, 320)
         self.et_safety_spin.setValue(260)
         safety_row.addWidget(self.et_safety_spin)
+        safety_row.addWidget(QLabel(QApplication.translate('Label', 'RoR max (C/min):')))
+        self.ror_safety_spin = QDoubleSpinBox()
+        self.ror_safety_spin.setRange(5.0, 60.0)
+        self.ror_safety_spin.setDecimals(1)
+        self.ror_safety_spin.setSingleStep(1.0)
+        self.ror_safety_spin.setValue(30.0)
+        safety_row.addWidget(self.ror_safety_spin)
         safety_row.addStretch()
         settings_layout.addLayout(safety_row)
 
@@ -419,8 +479,11 @@ class ThermalControlDlg(ArtisanDialog):
         # ── Results ───────────────────────────────────────────────────
         self.generate_results_text = QTextEdit()
         self.generate_results_text.setReadOnly(True)
-        self.generate_results_text.setMaximumHeight(120)
+        self.generate_results_text.setMaximumHeight(280)
         layout.addWidget(self.generate_results_text)
+
+        # Ensure trigger-dependent controls reflect initial selection.
+        self._on_trigger_mode_changed(self.trigger_mode_combo.currentIndex())
 
         layout.addStretch()
         tab.setLayout(layout)
@@ -445,6 +508,14 @@ class ThermalControlDlg(ArtisanDialog):
         self.apply_alarms_button = QPushButton(QApplication.translate('Button', 'Apply to Alarms'))
         self.apply_alarms_button.clicked.connect(self._on_apply_alarms)
         export_layout.addWidget(self.apply_alarms_button)
+
+        self.save_interop_json_button = QPushButton(QApplication.translate('Button', 'Save Interop JSON'))
+        self.save_interop_json_button.clicked.connect(self._on_save_interop_json)
+        export_layout.addWidget(self.save_interop_json_button)
+
+        self.save_hibean_csv_button = QPushButton(QApplication.translate('Button', 'Save HiBean CSV'))
+        self.save_hibean_csv_button.clicked.connect(self._on_save_hibean_csv)
+        export_layout.addWidget(self.save_hibean_csv_button)
 
         # ── Store as alarm set ────────────────────────────────────────
         store_row = QHBoxLayout()
@@ -475,6 +546,7 @@ class ThermalControlDlg(ArtisanDialog):
         """Enable / disable buttons based on current state."""
         has_profiles = len(self.calibration_data) > 0
         has_model = self.model is not None
+        has_inversion = self.inversion_result is not None
         has_alarms = self.alarm_data is not None
         is_fitting = self._fit_worker is not None and self._fit_worker.isRunning()
 
@@ -485,6 +557,8 @@ class ThermalControlDlg(ArtisanDialog):
         self.save_alrm_button.setEnabled(has_alarms)
         self.apply_alarms_button.setEnabled(has_alarms)
         self.store_alarm_set_button.setEnabled(has_alarms)
+        self.save_interop_json_button.setEnabled(has_inversion)
+        self.save_hibean_csv_button.setEnabled(has_inversion)
 
     @staticmethod
     def _format_mmss(value_s: float | None) -> str:
@@ -492,6 +566,29 @@ class ThermalControlDlg(ArtisanDialog):
             return '--'
         total = max(0, int(round(value_s)))
         return f'{total // 60}:{total % 60:02d}'
+
+    def _confirm_action_if_unsafe(self) -> bool:
+        if not self.validate_schedule_checkbox.isChecked():
+            return True
+        if self.safety_validation is None:
+            return True
+        if self.safety_validation.is_safe:
+            return True
+        details = '\n'.join(self.safety_validation.failures) or QApplication.translate(
+            'Message',
+            'Schedule failed safety validation.',
+        )
+        reply = QMessageBox.warning(
+            self,
+            QApplication.translate('Message', 'Unsafe Schedule'),
+            QApplication.translate(
+                'Message',
+                'Safety validation failed:\n{0}\n\nContinue anyway?',
+            ).format(details),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     # ===================================================================
     # Calibrate tab slots
@@ -711,10 +808,17 @@ class ThermalControlDlg(ArtisanDialog):
         self.drum_constant_widget.setVisible(index == 1)
         self.drum_ramp_widget.setVisible(index == 2)
 
+    @pyqtSlot(int)
+    def _on_trigger_mode_changed(self, index: int) -> None:
+        # 1 = BT-trigger mode
+        self.bt_trigger_hardening_widget.setVisible(index == 1)
+
     @pyqtSlot()
     def _on_generate(self) -> None:
         if self.model is None:
             return
+        self.safety_validation = None
+        self.quality_report = None
 
         # ── Get target BT curve ──────────────────────────────────────
         target_time: np.ndarray | None = None
@@ -785,8 +889,14 @@ class ThermalControlDlg(ArtisanDialog):
 
         trigger_mode = str(self.trigger_mode_combo.currentData())
         min_delta_pct = int(self.min_delta_spin.value())
+        bt_hysteresis_c = float(self.bt_hysteresis_spin.value())
+        bt_min_gap_c = float(self.bt_min_gap_spin.value())
         add_milestones = self.milestone_checkbox.isChecked()
         add_safety = self.safety_checkbox.isChecked()
+        validate_schedule_p = self.validate_schedule_checkbox.isChecked()
+        optimize_actuators = self.optimize_actuators_checkbox.isChecked()
+        optimizer_passes = int(self.optimizer_passes_spin.value())
+        ror_limit = float(self.ror_safety_spin.value())
 
         # ── Run inversion ─────────────────────────────────────────────
         try:
@@ -797,12 +907,16 @@ class ThermalControlDlg(ArtisanDialog):
                 target_bt=target_bt,
                 mass_kg=mass_kg,
                 fan_schedule=fan_schedule,
+                drum_schedule=drum_schedule,
+                optimize_actuators=optimize_actuators,
+                optimizer_iterations=optimizer_passes,
             )
 
             # Resample to chosen interval
             interval_s = float(self.interval_combo.currentData())
             resampled = inv_result.resample_to_interval(interval_s)
             self.inversion_result = resampled
+            self.generated_trigger_mode = ('bt' if trigger_mode == 'bt' else 'time')
 
             milestone_offsets: dict[str, float] | None = None
             if add_milestones:
@@ -819,13 +933,33 @@ class ThermalControlDlg(ArtisanDialog):
                 heater_pct=resampled.heater_pct,
                 fan_pct=resampled.fan_pct,
                 exo_warning_time=resampled.exo_warning_time,
-                drum_pct=drum_schedule,
+                drum_pct=resampled.drum_pct,
                 min_delta_pct=min_delta_pct,
                 trigger_mode=('bt' if trigger_mode == 'bt' else 'time'),
                 bt_profile=(resampled.predicted_bt if trigger_mode == 'bt' else None),
+                bt_hysteresis_c=bt_hysteresis_c,
+                bt_min_gap_c=bt_min_gap_c,
                 milestone_offsets=milestone_offsets,
                 bt_safety_ceiling=(float(self.bt_safety_spin.value()) if add_safety else None),
                 et_safety_ceiling=(float(self.et_safety_spin.value()) if add_safety else None),
+            )
+
+            self.safety_validation = None
+            if validate_schedule_p:
+                self.safety_validation = validate_schedule(
+                    self.model,
+                    resampled,
+                    bt_limit_c=(float(self.bt_safety_spin.value()) if add_safety else None),
+                    et_limit_c=(float(self.et_safety_spin.value()) if add_safety else None),
+                    max_ror_limit_c_per_min=ror_limit,
+                )
+
+            self.quality_report = build_quality_report(
+                target_time=np.asarray(target_time, dtype=np.float64),
+                target_bt=np.asarray(target_bt, dtype=np.float64),
+                inversion=resampled,
+                control_change_count=self.alarm_data.control_change_count(),
+                safety=self.safety_validation,
             )
 
             # Show results
@@ -834,31 +968,51 @@ class ThermalControlDlg(ArtisanDialog):
             lines.append(f'Alarm count: {self.alarm_data.alarm_count()}')
             lines.append(f'Max tracking error: {resampled.max_tracking_error:.2f} C')
             lines.append(f'RMSE: {resampled.rmse:.2f} C')
+            if resampled.objective_score is not None:
+                lines.append(f'Objective score: {resampled.objective_score:.3f}')
             lines.append(
                 f'Trigger mode: {"BT temperature" if trigger_mode == "bt" else "Time from CHARGE"}'
             )
             lines.append(f'Min control change: {min_delta_pct}%')
+            if trigger_mode == 'bt':
+                lines.append(f'BT hysteresis/min gap: {bt_hysteresis_c:.1f}C / {bt_min_gap_c:.1f}C')
+            lines.append(f'Joint fan+drum optimization: {"on" if optimize_actuators else "off"}')
             lines.append(f'Yellowing estimate: {self._format_mmss(resampled.yellowing_time)}')
             lines.append(f'First crack estimate: {self._format_mmss(resampled.first_crack_time)}')
             lines.append(f'Drop estimate: {self._format_mmss(resampled.drop_time)}')
             if resampled.dtr_percent is not None:
                 lines.append(f'DTR estimate: {resampled.dtr_percent:.1f}%')
+            if self.safety_validation is not None:
+                lines.extend(self.safety_validation.summary_lines())
+            if self.quality_report is not None:
+                lines.extend(self.quality_report.summary_lines())
             lines.append(f'Schedule: {desc}')
             self.generate_results_text.setPlainText('\n'.join(lines))
 
             self._update_button_states()
+            safety_state = (
+                'safe'
+                if self.safety_validation is None or self.safety_validation.is_safe
+                else 'unsafe'
+            )
             self.aw.sendmessage(
                 QApplication.translate(
                     'StatusBar',
-                    'Schedule generated: {0} alarms, RMSE={1:.2f} C ({2})',
+                    'Schedule generated: {0} alarms, RMSE={1:.2f} C ({2}, {3})',
                 ).format(
                     self.alarm_data.alarm_count(),
                     resampled.rmse,
                     'BT trigger' if trigger_mode == 'bt' else 'time trigger',
+                    safety_state,
                 )
             )
         except Exception as e:  # pylint: disable=broad-except
             _log.exception('Schedule generation failed')
+            self.inversion_result = None
+            self.alarm_data = None
+            self.safety_validation = None
+            self.quality_report = None
+            self._update_button_states()
             self.generate_results_text.setPlainText(f'Generation failed:\n{e}')
             self.aw.sendmessage(
                 QApplication.translate('StatusBar', 'Schedule generation failed: {0}').format(str(e))
@@ -871,6 +1025,9 @@ class ThermalControlDlg(ArtisanDialog):
     @pyqtSlot()
     def _on_save_alrm(self) -> None:
         if self.alarm_data is None:
+            return
+        if not self._confirm_action_if_unsafe():
+            self.aw.sendmessage(QApplication.translate('StatusBar', 'Export cancelled: schedule marked unsafe'))
             return
         filepath, _ = QFileDialog.getSaveFileName(
             self,
@@ -891,8 +1048,73 @@ class ThermalControlDlg(ArtisanDialog):
                 )
 
     @pyqtSlot()
+    def _on_save_interop_json(self) -> None:
+        if self.inversion_result is None:
+            return
+        if not self._confirm_action_if_unsafe():
+            self.aw.sendmessage(QApplication.translate('StatusBar', 'Export cancelled: schedule marked unsafe'))
+            return
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            QApplication.translate('Dialog', 'Save Interop Schedule JSON'),
+            'thermal_schedule_interop.json',
+            QApplication.translate('Dialog', 'JSON Files (*.json);;All Files (*)'),
+        )
+        if not filepath:
+            return
+        try:
+            schedule = schedule_from_inversion(
+                self.inversion_result,
+                trigger_mode=('bt' if self.generated_trigger_mode == 'bt' else 'time'),
+                label='Thermal Model Control',
+            )
+            export_artisan_plan_json(filepath, schedule)
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'Interop JSON saved to {0}').format(filepath)
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            _log.exception('Failed to save interop JSON')
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'Failed to save interop JSON: {0}').format(str(e))
+            )
+
+    @pyqtSlot()
+    def _on_save_hibean_csv(self) -> None:
+        if self.inversion_result is None:
+            return
+        if not self._confirm_action_if_unsafe():
+            self.aw.sendmessage(QApplication.translate('StatusBar', 'Export cancelled: schedule marked unsafe'))
+            return
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            QApplication.translate('Dialog', 'Save HiBean Replay CSV'),
+            'thermal_schedule_hibean.csv',
+            QApplication.translate('Dialog', 'CSV Files (*.csv);;All Files (*)'),
+        )
+        if not filepath:
+            return
+        try:
+            schedule = schedule_from_inversion(
+                self.inversion_result,
+                trigger_mode=('bt' if self.generated_trigger_mode == 'bt' else 'time'),
+                label='Thermal Model Control',
+            )
+            export_hibean_csv(filepath, schedule)
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'HiBean-style CSV saved to {0}').format(filepath)
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            _log.exception('Failed to save HiBean CSV')
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'Failed to save HiBean CSV: {0}').format(str(e))
+            )
+
+    @pyqtSlot()
     def _on_apply_alarms(self) -> None:
         if self.alarm_data is None:
+            return
+        if not self._confirm_action_if_unsafe():
+            self.aw.sendmessage(QApplication.translate('StatusBar', 'Apply cancelled: schedule marked unsafe'))
             return
         ad = self.alarm_data
         qmc = self.aw.qmc
@@ -917,6 +1139,11 @@ class ThermalControlDlg(ArtisanDialog):
     @pyqtSlot()
     def _on_store_alarm_set(self) -> None:
         if self.alarm_data is None:
+            return
+        if not self._confirm_action_if_unsafe():
+            self.aw.sendmessage(
+                QApplication.translate('StatusBar', 'Store cancelled: schedule marked unsafe')
+            )
             return
         slot = self.alarm_set_slot_spin.value()
         ad = self.alarm_data

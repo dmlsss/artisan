@@ -38,11 +38,11 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 PARAM_NAMES: Final[list[str]] = [
-    'h0', 'h1', 'T_amb', 'k_hp', 'k_fan',
+    'h0', 'h1', 'h2', 'T_amb', 'k_hp', 'k_fan',
     'mA', 'cp0', 'cp1',
     'q_exo', 'T_exo_onset', 'T_exo_width',
 ]
-"""Ordered names of the 11 fittable parameters (excludes m_ref)."""
+"""Ordered names of the 12 fittable parameters (excludes m_ref)."""
 
 _EXP_CLIP: Final[float] = 500.0
 """Max absolute exponent passed to numpy.exp to avoid overflow."""
@@ -61,6 +61,7 @@ class CalibrationData(Protocol):
     bt: NDArray
     heater_pct: NDArray
     fan_pct: NDArray
+    drum_pct: NDArray
     batch_mass_kg: float
 
 
@@ -85,12 +86,13 @@ def _safe_sigmoid(x: NDArray | float) -> NDArray | float:
 class ThermalModelParams:
     """Lumped-parameter thermal model parameters for the Kaleido M1 Lite.
 
-    11 fittable parameters plus the reference batch mass.
+    12 fittable parameters plus the reference batch mass.
     """
 
     # Heat-transfer coefficients
     h0: float = 0.5
     h1: float = 0.01
+    h2: float = 0.002
 
     # Environment temperature model
     T_amb: float = 25.0
@@ -117,7 +119,7 @@ class ThermalModelParams:
     # ------------------------------------------------------------------
 
     def to_vector(self) -> NDArray:
-        """Pack the 11 fittable parameters into a flat array.
+        """Pack the 12 fittable parameters into a flat array.
 
         The order matches :data:`PARAM_NAMES`.
         """
@@ -125,10 +127,10 @@ class ThermalModelParams:
 
     @classmethod
     def from_vector(cls, vec: NDArray, m_ref: float = 0.1) -> ThermalModelParams:
-        """Unpack a flat array of 11 fittable parameters.
+        """Unpack a flat array of 12 fittable parameters.
 
         Args:
-            vec: Array of length 11, ordered per :data:`PARAM_NAMES`.
+            vec: Array of length 12, ordered per :data:`PARAM_NAMES`.
             m_ref: Reference batch mass in kg (not fitted).
         """
         if len(vec) != len(PARAM_NAMES):
@@ -181,7 +183,7 @@ class KaleidoThermalModel:
                             + Q_exo(T)
 
     where:
-        h_eff   = h0 + h1 * fan_pct
+        h_eff   = h0 + h1 * fan_pct + h2 * drum_pct
         T_env   = T_amb + k_hp * hp_pct - k_fan * fan_pct
         cp(T)   = cp0 + cp1 * T
         Q_exo   = q_exo * sigmoid((T - T_exo_onset) / T_exo_width)
@@ -202,6 +204,7 @@ class KaleidoThermalModel:
         T: float,
         hp_func: callable,
         fan_func: callable,
+        drum_func: callable,
         mass_kg: float,
     ) -> float:
         """Evaluate dT/dt at a single point.
@@ -211,6 +214,7 @@ class KaleidoThermalModel:
             T: Current bean temperature (deg C).
             hp_func: Callable ``hp_func(t) -> heater_%``.
             fan_func: Callable ``fan_func(t) -> fan_%``.
+            drum_func: Callable ``drum_func(t) -> drum_%``.
             mass_kg: Batch mass in kg (used for mA scaling).
 
         Returns:
@@ -220,9 +224,10 @@ class KaleidoThermalModel:
 
         hp_pct: float = float(hp_func(t))
         fan_pct: float = float(fan_func(t))
+        drum_pct: float = float(drum_func(t))
 
         # Effective heat transfer coefficient
-        h_eff: float = p.h0 + p.h1 * fan_pct
+        h_eff: float = p.h0 + p.h1 * fan_pct + p.h2 * drum_pct
 
         # Effective environment temperature
         T_env: float = p.T_amb + p.k_hp * hp_pct - p.k_fan * fan_pct
@@ -250,6 +255,7 @@ class KaleidoThermalModel:
         time: NDArray,
         hp_schedule: NDArray,
         fan_schedule: NDArray,
+        drum_schedule: NDArray | None,
         T0: float,
         mass_kg: float | None = None,
     ) -> NDArray:
@@ -259,6 +265,8 @@ class KaleidoThermalModel:
             time: 1-D array of time points (seconds).
             hp_schedule: Heater-% values at each time point.
             fan_schedule: Fan-% values at each time point.
+            drum_schedule: Drum-% values at each time point. If ``None``,
+                a zero drum schedule is used.
             T0: Initial bean temperature (deg C).
             mass_kg: Batch mass in kg; defaults to ``params.m_ref``.
 
@@ -271,6 +279,9 @@ class KaleidoThermalModel:
         time = np.asarray(time, dtype=np.float64)
         hp_schedule = np.asarray(hp_schedule, dtype=np.float64)
         fan_schedule = np.asarray(fan_schedule, dtype=np.float64)
+        if drum_schedule is None:
+            drum_schedule = np.zeros_like(time, dtype=np.float64)
+        drum_schedule = np.asarray(drum_schedule, dtype=np.float64)
 
         # Build interpolating control-input functions
         def hp_func(t: float) -> float:
@@ -278,6 +289,9 @@ class KaleidoThermalModel:
 
         def fan_func(t: float) -> float:
             return np.interp(t, time, fan_schedule)
+
+        def drum_func(t: float) -> float:
+            return np.interp(t, time, drum_schedule)
 
         t_span = (float(time[0]), float(time[-1]))
 
@@ -287,7 +301,7 @@ class KaleidoThermalModel:
         )
 
         sol = solve_ivp(
-            fun=lambda t, y: [self.ode_rhs(t, y[0], hp_func, fan_func, mass_kg)],
+            fun=lambda t, y: [self.ode_rhs(t, y[0], hp_func, fan_func, drum_func, mass_kg)],
             t_span=t_span,
             y0=[T0],
             method='RK45',
@@ -319,7 +333,18 @@ class KaleidoThermalModel:
             time=calib_data.time,
             hp_schedule=calib_data.heater_pct,
             fan_schedule=calib_data.fan_pct,
+            drum_schedule=calib_data.drum_pct,
             T0=float(calib_data.bt[0]),
             mass_kg=calib_data.batch_mass_kg,
         )
         return predicted - np.asarray(calib_data.bt, dtype=np.float64)
+
+    def environment_temperature(
+        self,
+        hp_schedule: NDArray,
+        fan_schedule: NDArray,
+    ) -> NDArray:
+        """Estimate environment-equivalent temperature from controls."""
+        hp = np.asarray(hp_schedule, dtype=np.float64)
+        fan = np.asarray(fan_schedule, dtype=np.float64)
+        return self.params.T_amb + self.params.k_hp * hp - self.params.k_fan * fan

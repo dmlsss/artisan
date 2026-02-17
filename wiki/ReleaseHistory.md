@@ -19,6 +19,15 @@ v4.0.3 (unreleased)
   - adds thermal planner optional BT/ET safety popup alarms to generated schedules
   - adds CLI support for trigger mode, drum schedule, milestone toggles, deadband, and safety ceilings in `thermal_model_cli generate`
   - adds thermal inversion milestone unit tests (`test_thermal_model_inversion.py`)
+  - adds dry-run schedule safety validator (BT/ET/RoR limits) integrated into thermal planner generation and export/apply/store flow
+  - adds BT-trigger hardening controls (`BT hysteresis`, `BT min gap`) to reduce noisy threshold chatter
+  - adds joint fan+drum actuator optimization mode for thermal inversion
+  - adds thermal planner quality report scoring (tracking error + milestone deltas + control churn + safety status)
+  - adds interoperability adapters:
+    - export `artisan-thermal-plan-v1` JSON
+    - export HiBean-style replay CSV
+    - import interop JSON/CSV via `thermal_model_cli interop-convert`
+  - adds unit tests for schedule validator, quality scoring, and interop adapters
 
 * CHANGES
   - planner normalizes legacy Kaleido control events to Artisan slider channels (`Heat`, `Fan`, `Drum`) for playback
@@ -26,6 +35,7 @@ v4.0.3 (unreleased)
   - thermal target parsing accepts generic `.alog` files via `timex`/`temp2` without requiring Kaleido extra devices
   - thermal schedule generation uses positive alarm offsets to avoid skipped time-zero control actions
   - thermal background-target generation now normalizes Fahrenheit mode to Celsius before inversion
+  - thermal model adds drum coupling (`h2`) so drum schedules participate in forward simulation and fitting
 
 * FIXES
   - fixes planner safety alarm action mapping to use the correct popup action code

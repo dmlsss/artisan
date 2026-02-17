@@ -19,6 +19,8 @@ Updated: 2026-02-17
 3. Full actuator scheduling (heater/fan/drum), not heater-only
 4. Noise-resistant schedule execution
 5. Built-in safety ceiling alarms
+6. Pre-flight schedule validation before execution
+7. Cross-platform/interop profile exchange
 
 ## Implemented In This Fork
 
@@ -37,12 +39,26 @@ Updated: 2026-02-17
 5. Safety popup generation:
    - BT ceiling
    - ET ceiling
-6. Thermal planner milestone estimates in UI:
+6. Dry-run safety validator (BT/ET/RoR) with export/apply/store guardrails
+7. Thermal planner milestone estimates in UI:
    - yellowing time
    - first crack time
    - drop time
    - DTR estimate
-7. CLI parity (`thermal_model_cli generate`) for all of the above controls
+8. Thermal planner quality scoring:
+   - tracking RMSE/max error
+   - milestone deltas (predicted vs target)
+   - control change count
+   - safety pass/fail impact
+9. Joint fan+drum optimization mode during inversion
+10. BT-trigger hardening:
+    - hysteresis (`BT hysteresis`)
+    - minimum trigger spacing (`BT min gap`)
+11. Interoperability adapters:
+    - export `artisan-thermal-plan-v1` JSON
+    - export HiBean-style replay CSV
+    - import/convert interop JSON/CSV to `.alrm` via CLI
+12. Extended CLI parity (`thermal_model_cli generate` + `interop-convert`)
 
 ## Remaining Backlog
 

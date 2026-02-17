@@ -88,6 +88,10 @@ class AlarmTableData:
         """Return the total number of alarms."""
         return len(self.alarmflag)
 
+    def control_change_count(self) -> int:
+        """Return count of control actions (heater/fan/drum)."""
+        return sum(1 for action in self.alarmaction if action in {ACTION_HEATER, ACTION_FAN, ACTION_DRUM})
+
     def to_alrm_dict(self) -> dict[str, list[int] | list[float] | list[str]]:
         """Convert to the dict format used by .alrm JSON files.
 
@@ -179,6 +183,8 @@ def generate_alarm_table(
     min_delta_pct: int = 1,
     trigger_mode: TriggerMode = 'time',
     bt_profile: NDArray[np.float64] | None = None,
+    bt_hysteresis_c: float = 1.0,
+    bt_min_gap_c: float = 2.0,
     milestone_offsets: dict[str, float] | None = None,
     bt_safety_ceiling: float | None = None,
     et_safety_ceiling: float | None = None,
@@ -210,6 +216,12 @@ def generate_alarm_table(
         alarms.
     bt_profile:
         BT curve aligned to ``time``. Required for ``trigger_mode='bt'``.
+    bt_hysteresis_c:
+        Additional positive threshold offset applied to control triggers in
+        BT mode to reduce chatter near threshold crossings.
+    bt_min_gap_c:
+        Minimum threshold spacing between consecutive BT-triggered actions of
+        the same actuator channel.
     milestone_offsets:
         Optional mapping of milestone label -> seconds from CHARGE. A
         popup alarm is generated for each entry.
@@ -258,11 +270,23 @@ def generate_alarm_table(
             raise ValueError(
                 f'bt_profile length ({len(bt_arr)}) must match time length ({len(time)})'
             )
-        bt_thresholds = np.maximum.accumulate(bt_arr)
+        bt_thresholds = np.maximum.accumulate(bt_arr + max(0.0, float(bt_hysteresis_c)))
+
+    min_gap = max(0.0, float(bt_min_gap_c))
+    last_bt_threshold_by_action: dict[int, float] = {}
 
     prev_hp: int | None = None
     prev_fan: int | None = None
     prev_drum: int | None = None
+
+    def should_emit_bt(action: int, threshold: float) -> bool:
+        if trigger_mode != 'bt':
+            return True
+        last = last_bt_threshold_by_action.get(action)
+        if last is not None and (threshold - last) < min_gap:
+            return False
+        last_bt_threshold_by_action[action] = threshold
+        return True
 
     for i in range(len(time)):
         offset = int(time[i])
@@ -274,39 +298,42 @@ def generate_alarm_table(
 
         # Heater alarm — deduplicate small changes
         if prev_hp is None or abs(hp - prev_hp) >= min_delta:
-            _append_alarm(
-                data,
-                action=ACTION_HEATER,
-                value=str(hp),
-                trigger_mode=trigger_mode,
-                offset=offset,
-                temperature=bt_threshold,
-            )
+            if should_emit_bt(ACTION_HEATER, bt_threshold):
+                _append_alarm(
+                    data,
+                    action=ACTION_HEATER,
+                    value=str(hp),
+                    trigger_mode=trigger_mode,
+                    offset=offset,
+                    temperature=bt_threshold,
+                )
             prev_hp = hp
 
         # Fan alarm — deduplicate small changes
         if prev_fan is None or abs(fan - prev_fan) >= min_delta:
-            _append_alarm(
-                data,
-                action=ACTION_FAN,
-                value=str(fan),
-                trigger_mode=trigger_mode,
-                offset=offset,
-                temperature=bt_threshold,
-            )
+            if should_emit_bt(ACTION_FAN, bt_threshold):
+                _append_alarm(
+                    data,
+                    action=ACTION_FAN,
+                    value=str(fan),
+                    trigger_mode=trigger_mode,
+                    offset=offset,
+                    temperature=bt_threshold,
+                )
             prev_fan = fan
 
         if drum_int is not None:
             drum = int(drum_int[i])
             if prev_drum is None or abs(drum - prev_drum) >= min_delta:
-                _append_alarm(
-                    data,
-                    action=ACTION_DRUM,
-                    value=str(drum),
-                    trigger_mode=trigger_mode,
-                    offset=offset,
-                    temperature=bt_threshold,
-                )
+                if should_emit_bt(ACTION_DRUM, bt_threshold):
+                    _append_alarm(
+                        data,
+                        action=ACTION_DRUM,
+                        value=str(drum),
+                        trigger_mode=trigger_mode,
+                        offset=offset,
+                        temperature=bt_threshold,
+                    )
                 prev_drum = drum
 
     # Optional exothermic warning popup

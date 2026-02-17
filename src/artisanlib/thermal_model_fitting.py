@@ -75,6 +75,7 @@ def default_bounds() -> dict[str, tuple[float, float]]:
     return {
         'h0':          (0.01, 5.0),
         'h1':          (0.0, 0.1),
+        'h2':          (0.0, 0.1),
         'k_hp':        (1.0, 8.0),
         'k_fan':       (0.0, 3.0),
         'T_amb':       (15.0, 40.0),
@@ -105,6 +106,7 @@ def _simulate_roast(
         time=calib.time,
         hp_schedule=calib.heater_pct,
         fan_schedule=calib.fan_pct,
+        drum_schedule=calib.drum_pct,
         T0=float(calib.bt[0]),
         mass_kg=calib.batch_mass_kg,
     )

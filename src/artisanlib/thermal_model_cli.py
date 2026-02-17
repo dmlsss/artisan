@@ -43,6 +43,15 @@ from artisanlib.thermal_alarm_generator import (
     generate_alarm_table,
     generate_schedule_description,
 )
+from artisanlib.thermal_interop import (
+    export_artisan_plan_json,
+    export_hibean_csv,
+    import_interop_schedule,
+    interop_to_alarm_table,
+    schedule_from_inversion,
+)
+from artisanlib.thermal_planner_quality import build_quality_report
+from artisanlib.thermal_schedule_validator import validate_schedule
 
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -183,8 +192,14 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     if args.min_delta < 1:
         print('Error: --min-delta must be >= 1', file=sys.stderr)
         return 1
+    if args.bt_hysteresis < 0 or args.bt_min_gap < 0:
+        print('Error: --bt-hysteresis and --bt-min-gap must be >= 0', file=sys.stderr)
+        return 1
     if args.drum > 100 or args.drum < -1:
         print('Error: --drum must be in [0,100] or -1 to disable', file=sys.stderr)
+        return 1
+    if args.optimizer_iterations < 1 or args.optimizer_segments < 2 or args.optimizer_step < 1:
+        print('Error: optimizer settings must be positive (segments >= 2)', file=sys.stderr)
         return 1
 
     # Load model
@@ -207,6 +222,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         print(f'Drum setting: {args.drum}%')
     else:
         print('Drum setting: off')
+    print(f'Actuator optimization: {"on" if args.optimize_actuators else "off"}')
     print(f'Trigger mode: {args.trigger_mode}')
     print(f'Min control change: {args.min_delta}%')
     print(f'Resample interval: {args.interval} s')
@@ -219,10 +235,17 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         target_bt=target.bt,
         mass_kg=mass_kg,
         fan_schedule=float(args.fan),
+        drum_schedule=(None if args.drum < 0 else float(args.drum)),
+        optimize_actuators=bool(args.optimize_actuators),
+        optimizer_iterations=int(args.optimizer_iterations),
+        optimizer_segments=int(args.optimizer_segments),
+        optimizer_step_pct=int(args.optimizer_step),
     )
 
     print(f'Inversion tracking error: RMSE={inv_result.rmse:.2f} C, '
           f'max={inv_result.max_tracking_error:.2f} C')
+    if inv_result.objective_score is not None:
+        print(f'Optimization objective: {inv_result.objective_score:.3f}')
 
     if inv_result.exo_warning_time is not None:
         print(f'Exothermic onset: {_format_time(inv_result.exo_warning_time)}')
@@ -254,14 +277,38 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         heater_pct=resampled.heater_pct,
         fan_pct=resampled.fan_pct,
         exo_warning_time=inv_result.exo_warning_time,
-        drum_pct=(None if args.drum < 0 else float(args.drum)),
+        drum_pct=resampled.drum_pct,
         min_delta_pct=int(args.min_delta),
         trigger_mode=args.trigger_mode,
         bt_profile=(resampled.predicted_bt if args.trigger_mode == 'bt' else None),
+        bt_hysteresis_c=float(args.bt_hysteresis),
+        bt_min_gap_c=float(args.bt_min_gap),
         milestone_offsets=milestone_offsets,
         bt_safety_ceiling=args.bt_max,
         et_safety_ceiling=args.et_max,
     )
+
+    safety = validate_schedule(
+        model,
+        resampled,
+        bt_limit_c=args.bt_max,
+        et_limit_c=args.et_max,
+        max_ror_limit_c_per_min=args.max_ror,
+    )
+    print('')
+    for line in safety.summary_lines():
+        print(line)
+
+    quality = build_quality_report(
+        target_time=target.time,
+        target_bt=target.bt,
+        inversion=resampled,
+        control_change_count=alarms.control_change_count(),
+        safety=safety,
+    )
+    print('')
+    for line in quality.summary_lines():
+        print(line)
 
     # Print schedule description
     desc = generate_schedule_description(alarms)
@@ -271,6 +318,18 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     output_path = args.output
     alarms.save_alrm(output_path)
     print(f'Alarm file saved to: {output_path}')
+
+    interop_schedule = schedule_from_inversion(
+        resampled,
+        trigger_mode=args.trigger_mode,
+        label=alarms.label or 'Thermal Model Control',
+    )
+    if args.interop_json:
+        export_artisan_plan_json(args.interop_json, interop_schedule)
+        print(f'Interop JSON saved to: {args.interop_json}')
+    if args.hibean_csv:
+        export_hibean_csv(args.hibean_csv, interop_schedule)
+        print(f'HiBean-style CSV saved to: {args.hibean_csv}')
 
     # Optional plot
     if args.plot:
@@ -310,6 +369,8 @@ def _plot_generate(target, inv_result) -> None:
                  label='Heater %', linewidth=1, alpha=0.8)
         ax2.plot(inv_time_min, inv_result.fan_pct, 'green',
                  label='Fan %', linewidth=1, alpha=0.8)
+        ax2.plot(inv_time_min, inv_result.drum_pct, 'purple',
+                 label='Drum %', linewidth=1, alpha=0.8)
         ax2.set_ylabel('Control (%)', color='gray')
         ax2.tick_params(axis='y', labelcolor='gray')
         ax2.set_ylim(0, 110)
@@ -358,6 +419,7 @@ def _cmd_simulate(args: argparse.Namespace) -> int:
         time=time,
         hp_schedule=hp_schedule,
         fan_schedule=fan_schedule,
+        drum_schedule=np.zeros_like(time, dtype=np.float64),
         T0=T0,
         mass_kg=mass_kg,
     )
@@ -433,6 +495,23 @@ def _plot_simulate(time, predicted) -> None:
         print(f'Warning: Could not display plot: {exc}', file=sys.stderr)
 
 
+def _cmd_interop_convert(args: argparse.Namespace) -> int:
+    """Convert an interop schedule into an Artisan alarm file."""
+    schedule = import_interop_schedule(args.input, fmt=args.format)
+    alarms = interop_to_alarm_table(
+        schedule,
+        min_delta_pct=args.min_delta,
+        bt_hysteresis_c=args.bt_hysteresis,
+        bt_min_gap_c=args.bt_min_gap,
+    )
+    alarms.save_alrm(args.output)
+    print(f'Loaded schedule: {schedule.label}')
+    print(f'Trigger mode: {schedule.trigger_mode}')
+    print(f'Generated alarms: {alarms.alarm_count()}')
+    print(f'Saved: {args.output}')
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -441,7 +520,7 @@ def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog='thermal_model_cli',
-        description='Kaleido thermal model CLI — fit, generate, and simulate.',
+        description='Kaleido thermal model CLI — fit, generate, simulate, and interop conversion.',
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true',
@@ -503,8 +582,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Control trigger mode: time or BT threshold (default: time).',
     )
     p_gen.add_argument(
+        '--optimize-actuators', action='store_true',
+        help='Co-optimise fan and drum schedules during inversion.',
+    )
+    p_gen.add_argument(
+        '--optimizer-iterations', type=int, default=3,
+        help='Coordinate-descent iterations for actuator optimisation (default: 3).',
+    )
+    p_gen.add_argument(
+        '--optimizer-segments', type=int, default=8,
+        help='Piecewise schedule segments for actuator optimisation (default: 8).',
+    )
+    p_gen.add_argument(
+        '--optimizer-step', type=int, default=8,
+        help='Initial actuator step size in %% for optimisation (default: 8).',
+    )
+    p_gen.add_argument(
         '--min-delta', type=int, default=2,
         help='Minimum control change (%%) required to emit a new alarm (default: 2).',
+    )
+    p_gen.add_argument(
+        '--bt-hysteresis', type=float, default=1.0,
+        help='BT trigger hysteresis in C (default: 1.0).',
+    )
+    p_gen.add_argument(
+        '--bt-min-gap', type=float, default=2.0,
+        help='Minimum BT trigger spacing in C (default: 2.0).',
     )
     p_gen.add_argument(
         '--no-milestones', action='store_true',
@@ -519,6 +622,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Optional ET safety ceiling popup alarm in C.',
     )
     p_gen.add_argument(
+        '--max-ror', type=float, default=None,
+        help='Optional RoR safety ceiling for dry-run validation (C/min).',
+    )
+    p_gen.add_argument(
         '--interval', type=float, default=10.0,
         help='Resample interval in seconds (default: 10).',
     )
@@ -529,6 +636,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument(
         '--plot', action='store_true',
         help='Show matplotlib plot of target/predicted BT and controls.',
+    )
+    p_gen.add_argument(
+        '--interop-json', default=None,
+        help='Optional path to export artisan-thermal-plan JSON.',
+    )
+    p_gen.add_argument(
+        '--hibean-csv', default=None,
+        help='Optional path to export a HiBean-style replay CSV.',
     )
 
     # ── simulate ──────────────────────────────────────────────────────
@@ -565,6 +680,36 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Show matplotlib plot of BT and RoR curves.',
     )
 
+    # ── interop-convert ───────────────────────────────────────────────
+    p_io = sub.add_parser(
+        'interop-convert',
+        help='Convert interop schedule JSON/CSV into Artisan .alrm format.',
+    )
+    p_io.add_argument(
+        'input',
+        help='Input schedule file (.json or .csv).',
+    )
+    p_io.add_argument(
+        'output',
+        help='Output .alrm file path.',
+    )
+    p_io.add_argument(
+        '--format', choices=['auto', 'json', 'csv'], default='auto',
+        help='Input format (default: auto).',
+    )
+    p_io.add_argument(
+        '--min-delta', type=int, default=2,
+        help='Minimum control change (%%) required to emit a new alarm (default: 2).',
+    )
+    p_io.add_argument(
+        '--bt-hysteresis', type=float, default=1.0,
+        help='BT trigger hysteresis in C (default: 1.0).',
+    )
+    p_io.add_argument(
+        '--bt-min-gap', type=float, default=2.0,
+        help='Minimum BT trigger spacing in C (default: 2.0).',
+    )
+
     return parser
 
 
@@ -576,6 +721,7 @@ _COMMANDS = {
     'fit':      _cmd_fit,
     'generate': _cmd_generate,
     'simulate': _cmd_simulate,
+    'interop-convert': _cmd_interop_convert,
 }
 
 

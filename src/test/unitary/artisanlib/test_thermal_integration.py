@@ -122,6 +122,24 @@ def test_generate_alarm_table_bt_trigger_with_drum_and_deadband() -> None:
     assert drum_values == ['55', '60']
 
 
+def test_generate_alarm_table_bt_trigger_hardening_reduces_dense_actions() -> None:
+    alarms = generate_alarm_table(
+        time=np.array([0.0, 10.0, 20.0, 30.0], dtype=np.float64),
+        heater_pct=np.array([60.0, 65.0, 70.0, 75.0], dtype=np.float64),
+        fan_pct=np.array([25.0, 30.0, 35.0, 40.0], dtype=np.float64),
+        trigger_mode='bt',
+        bt_profile=np.array([120.0, 121.0, 122.0, 123.0], dtype=np.float64),
+        bt_hysteresis_c=2.0,
+        bt_min_gap_c=3.0,
+    )
+
+    heater_rows = [i for i, action in enumerate(alarms.alarmaction) if action == ACTION_HEATER]
+    # With a 3C minimum BT gap and only 1C per sample progression, we should
+    # emit fewer than all four heater updates.
+    assert len(heater_rows) < 4
+    assert all(alarms.alarmtime[i] == -1 for i in heater_rows)
+
+
 def test_generate_alarm_table_adds_milestones_and_safety_alarms() -> None:
     alarms = generate_alarm_table(
         time=np.array([0.0, 10.0], dtype=np.float64),
