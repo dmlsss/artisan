@@ -23,6 +23,14 @@ v4.0.3 (unreleased)
   - adds BT-trigger hardening controls (`BT hysteresis`, `BT min gap`) to reduce noisy threshold chatter
   - adds joint fan+drum actuator optimization mode for thermal inversion
   - adds thermal planner quality report scoring (tracking error + milestone deltas + control churn + safety status)
+  - adds Kaleido connection status indicator and direct Auto-Heating PID toggle button
+  - adds quick cupping popup workflow after DROP to capture rating/notes/defects
+  - adds live background-vs-current BT delta HUD overlay during recording
+  - adds RoR trend color-coding for rapid decline/flat/flick visual diagnosis
+  - adds roast defect detection notifications (baking, crash, scorching, underdeveloped)
+  - adds bundled Kaleido profile templates (Light City, Full City, Vienna)
+  - adds one-step Ubuntu setup helper script (`setup-ubuntu.sh`)
+  - adds consolidated fork feature map documentation (`wiki/ForkFeatureGuide.md`)
   - adds interoperability adapters:
     - export `artisan-thermal-plan-v1` JSON
     - export HiBean-style replay CSV

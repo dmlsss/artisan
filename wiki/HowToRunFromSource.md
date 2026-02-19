@@ -40,6 +40,16 @@ While this document is presumed free of errors as of January 2024, there is no g
     # git clone https://github.com/artisan-roaster-scope/artisan.git
     ```
 
+Optional Ubuntu fast path for this fork
+
+```
+# cd artisan
+# chmod +x setup-ubuntu.sh
+# ./setup-ubuntu.sh --dev
+# source ~/artisan-venv/bin/activate
+# cd src
+```
+
 5. Install required packages
 
     ```

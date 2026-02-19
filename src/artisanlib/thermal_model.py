@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, fields, asdict
+from collections.abc import Callable
 from typing import Final, Protocol, TYPE_CHECKING
 
 import numpy as np
@@ -202,9 +203,9 @@ class KaleidoThermalModel:
         self,
         t: float,
         T: float,
-        hp_func: callable,
-        fan_func: callable,
-        drum_func: callable,
+        hp_func: Callable[[float], float],
+        fan_func: Callable[[float], float],
+        drum_func: Callable[[float], float],
         mass_kg: float,
     ) -> float:
         """Evaluate dT/dt at a single point.

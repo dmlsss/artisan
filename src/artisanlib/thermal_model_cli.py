@@ -189,6 +189,15 @@ def _plot_fit(result: FitResult, profiles: list) -> None:
 
 def _cmd_generate(args: argparse.Namespace) -> int:
     """Generate alarm schedule from target profile using model inversion."""
+    if args.mass <= 0:
+        print('Error: --mass must be > 0 grams', file=sys.stderr)
+        return 1
+    if args.interval <= 0:
+        print('Error: --interval must be > 0 seconds', file=sys.stderr)
+        return 1
+    if args.fan < 0 or args.fan > 100:
+        print('Error: --fan must be in [0,100]', file=sys.stderr)
+        return 1
     if args.min_delta < 1:
         print('Error: --min-delta must be >= 1', file=sys.stderr)
         return 1
