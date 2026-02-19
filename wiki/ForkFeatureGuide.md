@@ -17,6 +17,9 @@ What is included:
 - Unified `Tools >> Roast Planner...` entry point
 - `Template/Event Planner` for fast feedforward profile adaptation
 - `Thermal Model Planner` for model-based schedule generation
+- thermal planner batch presets (`50/75/100/125/150 g`) with goal-based defaults
+- target-curve inspection summary in planner drawer (duration/points/BT range)
+- pre-export alarm review table with editable rows and optional flavor-impact notes
 - Optional fan + drum joint optimization
 - Time-trigger or BT-trigger schedule emission
 - Milestone and safety popup generation

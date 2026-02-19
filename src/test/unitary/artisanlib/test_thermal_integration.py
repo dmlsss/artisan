@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from artisanlib.thermal_alarm_generator import (
     ACTION_DRUM,
@@ -10,7 +11,11 @@ from artisanlib.thermal_alarm_generator import (
     ACTION_POPUP,
     generate_alarm_table,
 )
-from artisanlib.thermal_control_dlg import _cap_calibration_file_selection
+from artisanlib.thermal_control_dlg import (
+    _cap_calibration_file_selection,
+    normalize_target_curve,
+    resolve_batch_planner_preset,
+)
 from artisanlib.thermal_profile_parser import parse_alog_profile, parse_target_profile
 
 
@@ -177,3 +182,80 @@ def test_cap_calibration_file_selection_respects_total_limit() -> None:
     )
     assert selected == []
     assert limited is True
+
+
+@pytest.mark.parametrize(
+    'mass_g,goal,expected_mass',
+    [
+        (45, 'balanced', 50),
+        (50, 'balanced', 50),
+        (74, 'balanced', 75),
+        (99, 'balanced', 100),
+        (124, 'balanced', 125),
+        (149, 'balanced', 150),
+        (151, 'balanced', 150),
+        (61, 'safe', 50),
+        (88, 'safe', 75),
+        (116, 'safe', 125),
+        (140, 'safe', 150),
+        (50, 'safe', 50),
+        (75, 'safe', 75),
+        (100, 'safe', 100),
+        (125, 'safe', 125),
+        (150, 'safe', 150),
+        (52, 'precision', 50),
+        (83, 'precision', 75),
+        (102, 'precision', 100),
+        (133, 'precision', 125),
+    ],
+)
+def test_resolve_batch_planner_preset_snaps_to_expected_mass(
+    mass_g: int,
+    goal: str,
+    expected_mass: int,
+) -> None:
+    preset = resolve_batch_planner_preset(mass_g, goal=goal)  # type: ignore[arg-type]
+    assert preset.mass_g == expected_mass
+
+
+def test_resolve_batch_planner_preset_goal_adjustments() -> None:
+    base = resolve_batch_planner_preset(100, goal='balanced')
+    safe = resolve_batch_planner_preset(100, goal='safe')
+    precision = resolve_batch_planner_preset(100, goal='precision')
+
+    assert safe.fan_pct >= base.fan_pct
+    assert safe.min_delta_pct >= base.min_delta_pct
+    assert safe.optimizer_passes <= base.optimizer_passes
+    assert safe.bt_max_c <= base.bt_max_c
+    assert safe.et_max_c <= base.et_max_c
+    assert safe.max_ror_c_per_min <= base.max_ror_c_per_min
+
+    assert precision.fan_pct <= base.fan_pct
+    assert precision.min_delta_pct <= base.min_delta_pct
+    assert precision.interval_s <= base.interval_s
+    assert precision.optimizer_passes >= base.optimizer_passes
+    assert precision.max_ror_c_per_min >= base.max_ror_c_per_min
+
+
+def test_normalize_target_curve_filters_sorts_and_deduplicates() -> None:
+    target_time = np.array([20.0, 0.0, 10.0, 10.0, np.nan, 30.0], dtype=np.float64)
+    target_bt = np.array([120.0, 90.0, 100.0, 101.0, 140.0, -1.0], dtype=np.float64)
+
+    clean_time, clean_bt, stats = normalize_target_curve(target_time, target_bt)
+
+    assert np.allclose(clean_time, [0.0, 10.0, 20.0])
+    assert np.allclose(clean_bt, [90.0, 100.0, 120.0])
+    assert stats.sample_count == 3
+    assert stats.duration_s == pytest.approx(20.0)
+    assert stats.bt_min_c == pytest.approx(90.0)
+    assert stats.bt_max_c == pytest.approx(120.0)
+    assert stats.bt_start_c == pytest.approx(90.0)
+    assert stats.bt_end_c == pytest.approx(120.0)
+
+
+def test_normalize_target_curve_rejects_insufficient_points() -> None:
+    with pytest.raises(ValueError):
+        normalize_target_curve(
+            np.array([0.0, np.nan], dtype=np.float64),
+            np.array([-1.0, np.nan], dtype=np.float64),
+        )

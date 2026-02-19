@@ -329,6 +329,14 @@ class CurvesDlg(ArtisanDialog):
         self.org_foregroundShowFullflag = self.aw.qmc.foregroundShowFullflag
         self.org_LCDdecimalplaces = self.aw.qmc.LCDdecimalplaces
         self.org_percent_decimals = self.aw.percent_decimals
+        self.org_ror_color_coding = self.aw.qmc.ror_color_coding
+        self.org_ror_slope_legend = self.aw.qmc.ror_slope_legend
+        self.org_ror_decline_threshold = self.aw.qmc.ror_decline_threshold
+        self.org_ror_rise_threshold = self.aw.qmc.ror_rise_threshold
+        self.org_ror_decline_color = self.aw.qmc.ror_decline_color
+        self.org_ror_flat_color = self.aw.qmc.ror_flat_color
+        self.org_ror_crash_color = self.aw.qmc.ror_crash_color
+        self.org_legend_prefer_curve_area = self.aw.qmc.legend_prefer_curve_area
 
         #delta ET
         self.DeltaET = QCheckBox()
@@ -675,6 +683,77 @@ class CurvesDlg(ArtisanDialog):
         rorFilterHBox.addWidget(rormaxlabel)
         rorFilterHBox.addWidget(self.rormaxLimit)
         rorFilterHBox.addStretch()
+
+        self.rorSlopeColoring = QCheckBox(QApplication.translate('CheckBox', 'Color-code RoR slope'))
+        self.rorSlopeColoring.setChecked(self.aw.qmc.ror_color_coding)
+        self.rorSlopeColoring.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rorSlopeLegend = QCheckBox(QApplication.translate('CheckBox', 'Show RoR slope legend'))
+        self.rorSlopeLegend.setChecked(self.aw.qmc.ror_slope_legend)
+        self.rorSlopeLegend.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.legendPreferCurveArea = QCheckBox(QApplication.translate('CheckBox', 'Keep legend in curve area'))
+        self.legendPreferCurveArea.setChecked(self.aw.qmc.legend_prefer_curve_area)
+        self.legendPreferCurveArea.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        declineThresholdLabel = QLabel(QApplication.translate('Label', 'Decline threshold'))
+        self.rorDeclineThreshold = MyQDoubleSpinBox()
+        self.rorDeclineThreshold.setRange(-20.0, 0.0)
+        self.rorDeclineThreshold.setSingleStep(0.1)
+        self.rorDeclineThreshold.setDecimals(1)
+        self.rorDeclineThreshold.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.rorDeclineThreshold.setValue(float(self.aw.qmc.ror_decline_threshold))
+
+        riseThresholdLabel = QLabel(QApplication.translate('Label', 'Rise threshold'))
+        self.rorRiseThreshold = MyQDoubleSpinBox()
+        self.rorRiseThreshold.setRange(0.0, 20.0)
+        self.rorRiseThreshold.setSingleStep(0.1)
+        self.rorRiseThreshold.setDecimals(1)
+        self.rorRiseThreshold.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.rorRiseThreshold.setValue(float(self.aw.qmc.ror_rise_threshold))
+
+        declineColorButton = QPushButton(QApplication.translate('Button', 'Decline Color'))
+        declineColorButton.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        declineColorButton.clicked.connect(self.set_ror_decline_color)
+        flatColorButton = QPushButton(QApplication.translate('Button', 'Flat Color'))
+        flatColorButton.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        flatColorButton.clicked.connect(self.set_ror_flat_color)
+        riseColorButton = QPushButton(QApplication.translate('Button', 'Rise Color'))
+        riseColorButton.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        riseColorButton.clicked.connect(self.set_ror_rise_color)
+        self.rorDeclineColorSwatch = QLabel('  ')
+        self.rorFlatColorSwatch = QLabel('  ')
+        self.rorRiseColorSwatch = QLabel('  ')
+        self._update_ror_color_swatches()
+
+        rorSlopeFlagsRow = QHBoxLayout()
+        rorSlopeFlagsRow.addWidget(self.rorSlopeColoring)
+        rorSlopeFlagsRow.addWidget(self.rorSlopeLegend)
+        rorSlopeFlagsRow.addWidget(self.legendPreferCurveArea)
+        rorSlopeFlagsRow.addStretch()
+
+        rorSlopeThresholdRow = QHBoxLayout()
+        rorSlopeThresholdRow.addWidget(declineThresholdLabel)
+        rorSlopeThresholdRow.addWidget(self.rorDeclineThreshold)
+        rorSlopeThresholdRow.addSpacing(10)
+        rorSlopeThresholdRow.addWidget(riseThresholdLabel)
+        rorSlopeThresholdRow.addWidget(self.rorRiseThreshold)
+        rorSlopeThresholdRow.addStretch()
+
+        rorSlopeColorsRow = QHBoxLayout()
+        rorSlopeColorsRow.addWidget(declineColorButton)
+        rorSlopeColorsRow.addWidget(self.rorDeclineColorSwatch)
+        rorSlopeColorsRow.addSpacing(8)
+        rorSlopeColorsRow.addWidget(flatColorButton)
+        rorSlopeColorsRow.addWidget(self.rorFlatColorSwatch)
+        rorSlopeColorsRow.addSpacing(8)
+        rorSlopeColorsRow.addWidget(riseColorButton)
+        rorSlopeColorsRow.addWidget(self.rorRiseColorSwatch)
+        rorSlopeColorsRow.addStretch()
+
+        rorSlopeBox = QVBoxLayout()
+        rorSlopeBox.addLayout(rorSlopeFlagsRow)
+        rorSlopeBox.addLayout(rorSlopeThresholdRow)
+        rorSlopeBox.addLayout(rorSlopeColorsRow)
+
         rorFilterVBoxHLine = QFrame()
         rorFilterVBoxHLine.setFrameStyle(QFrame.Shape.HLine)
         rorFilterVBoxHLine.setFrameShadow(QFrame.Shadow.Sunken)
@@ -684,6 +763,7 @@ class CurvesDlg(ArtisanDialog):
         rorFilterVBox.addWidget(self.OptimalSmoothingFlag)
         rorFilterVBox.addWidget(rorFilterVBoxHLine)
         rorFilterVBox.addLayout(rorFilterHBox)
+        rorFilterVBox.addLayout(rorSlopeBox)
         rorHBox = QHBoxLayout()
         rorHBox.addLayout(sensitivityLayout)
         rorHBox.addSpacing(12)
@@ -1667,6 +1747,32 @@ class CurvesDlg(ArtisanDialog):
             _, _, exc_tb = sys.exc_info()
             self.aw.qmc.adderror((QApplication.translate('Error Message', 'Exception:') + ' changedpi(): {0}').format(str(e)),getattr(exc_tb, 'tb_lineno', '?'))
 
+    def _update_ror_color_swatches(self) -> None:
+        self.rorDeclineColorSwatch.setStyleSheet(f"background-color:'{self.aw.qmc.ror_decline_color}';")
+        self.rorFlatColorSwatch.setStyleSheet(f"background-color:'{self.aw.qmc.ror_flat_color}';")
+        self.rorRiseColorSwatch.setStyleSheet(f"background-color:'{self.aw.qmc.ror_crash_color}';")
+
+    @pyqtSlot(bool)
+    def set_ror_decline_color(self, _:bool = False) -> None:
+        colorf = self.aw.colordialog(QColor(self.aw.qmc.ror_decline_color))
+        if colorf.isValid():
+            self.aw.qmc.ror_decline_color = str(colorf.name())
+            self._update_ror_color_swatches()
+
+    @pyqtSlot(bool)
+    def set_ror_flat_color(self, _:bool = False) -> None:
+        colorf = self.aw.colordialog(QColor(self.aw.qmc.ror_flat_color))
+        if colorf.isValid():
+            self.aw.qmc.ror_flat_color = str(colorf.name())
+            self._update_ror_color_swatches()
+
+    @pyqtSlot(bool)
+    def set_ror_rise_color(self, _:bool = False) -> None:
+        colorf = self.aw.colordialog(QColor(self.aw.qmc.ror_crash_color))
+        if colorf.isValid():
+            self.aw.qmc.ror_crash_color = str(colorf.name())
+            self._update_ror_color_swatches()
+
     @pyqtSlot(bool)
     def setcurvecolor0(self, _:bool = False) -> None:
         self.setcurvecolor(0)
@@ -2598,6 +2704,14 @@ class CurvesDlg(ArtisanDialog):
         self.aw.qmc.foregroundShowFullflag = self.org_foregroundShowFullflag
         self.aw.qmc.LCDdecimalplaces = self.org_LCDdecimalplaces
         self.aw.percent_decimals = self.org_percent_decimals
+        self.aw.qmc.ror_color_coding = self.org_ror_color_coding
+        self.aw.qmc.ror_slope_legend = self.org_ror_slope_legend
+        self.aw.qmc.ror_decline_threshold = self.org_ror_decline_threshold
+        self.aw.qmc.ror_rise_threshold = self.org_ror_rise_threshold
+        self.aw.qmc.ror_decline_color = self.org_ror_decline_color
+        self.aw.qmc.ror_flat_color = self.org_ror_flat_color
+        self.aw.qmc.ror_crash_color = self.org_ror_crash_color
+        self.aw.qmc.legend_prefer_curve_area = self.org_legend_prefer_curve_area
 
         self.aw.setFonts(False)
         self.aw.qmc.resetlinecountcaches()
@@ -2649,6 +2763,16 @@ class CurvesDlg(ArtisanDialog):
         self.aw.qmc.RoRlimitFlag = self.rorFilter.isChecked()
         self.aw.qmc.RoRlimitm = int(self.rorminLimit.value())
         self.aw.qmc.RoRlimit = int(self.rormaxLimit.value())
+        self.aw.qmc.ror_color_coding = self.rorSlopeColoring.isChecked()
+        self.aw.qmc.ror_slope_legend = self.rorSlopeLegend.isChecked()
+        decline_threshold = float(self.rorDeclineThreshold.value())
+        rise_threshold = float(self.rorRiseThreshold.value())
+        if rise_threshold <= decline_threshold:
+            rise_threshold = decline_threshold + 0.1
+            self.rorRiseThreshold.setValue(rise_threshold)
+        self.aw.qmc.ror_decline_threshold = float2float(decline_threshold, 2)
+        self.aw.qmc.ror_rise_threshold = float2float(rise_threshold, 2)
+        self.aw.qmc.legend_prefer_curve_area = self.legendPreferCurveArea.isChecked()
         self.aw.qmc.filterDropOuts = self.FilterSpikes.isChecked()
         self.aw.qmc.dropSpikes = self.DropSpikes.isChecked()
         self.aw.qmc.dropDuplicates = self.DropDuplicates.isChecked()

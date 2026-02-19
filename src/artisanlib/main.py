@@ -19041,6 +19041,23 @@ class ApplicationWindow(QMainWindow):
             self.qmc.DeltaETlcdflag = toBool(settings.value('DeltaETlcd',self.qmc.DeltaETlcdflag))
             self.qmc.DeltaBTlcdflag = toBool(settings.value('DeltaBTlcd',self.qmc.DeltaBTlcdflag))
             self.qmc.swapdeltalcds = toBool(settings.value('swapdeltalcds',self.qmc.swapdeltalcds))
+            self.qmc.ror_color_coding = toBool(settings.value('ror_color_coding', self.qmc.ror_color_coding))
+            self.qmc.ror_slope_legend = toBool(settings.value('ror_slope_legend', self.qmc.ror_slope_legend))
+            self.qmc.ror_decline_threshold = toFloat(
+                settings.value('ror_decline_threshold', self.qmc.ror_decline_threshold)
+            )
+            self.qmc.ror_rise_threshold = toFloat(
+                settings.value('ror_rise_threshold', self.qmc.ror_rise_threshold)
+            )
+            self.qmc.ror_decline_color = toString(
+                settings.value('ror_decline_color', self.qmc.ror_decline_color)
+            )
+            self.qmc.ror_flat_color = toString(
+                settings.value('ror_flat_color', self.qmc.ror_flat_color)
+            )
+            self.qmc.ror_crash_color = toString(
+                settings.value('ror_crash_color', self.qmc.ror_crash_color)
+            )
             settings.endGroup()
 #--- END GROUP RoC
 
@@ -19148,6 +19165,9 @@ class ApplicationWindow(QMainWindow):
             self.qmc.locktimex_end = toInt(settings.value('locktimex_end',self.qmc.locktimex_end))
             self.qmc.chargemintime = toInt(settings.value('chargemintime',self.qmc.chargemintime))
             self.qmc.legendloc = toInt(settings.value('legendloc',self.qmc.legendloc))
+            self.qmc.legend_prefer_curve_area = toBool(
+                settings.value('legendPreferCurveArea', self.qmc.legend_prefer_curve_area)
+            )
             self.qmc.temp_grid = toBool(settings.value('temp_grid',self.qmc.temp_grid))
             self.qmc.time_grid = toBool(settings.value('time_grid',self.qmc.time_grid))
             settings.endGroup()
@@ -20900,6 +20920,13 @@ class ApplicationWindow(QMainWindow):
             self.settingsSetValue(settings, default_settings, 'percent_decimals',self.percent_decimals, read_defaults)
             self.settingsSetValue(settings, default_settings, 'statisticsmode',self.qmc.statisticsmode, read_defaults)
             self.settingsSetValue(settings, default_settings, 'swapdeltalcds',self.qmc.swapdeltalcds, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_color_coding', self.qmc.ror_color_coding, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_slope_legend', self.qmc.ror_slope_legend, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_decline_threshold', self.qmc.ror_decline_threshold, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_rise_threshold', self.qmc.ror_rise_threshold, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_decline_color', self.qmc.ror_decline_color, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_flat_color', self.qmc.ror_flat_color, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_crash_color', self.qmc.ror_crash_color, read_defaults)
             settings.endGroup()
 #--- END GROUP RoC
 
@@ -20986,6 +21013,7 @@ class ApplicationWindow(QMainWindow):
             self.settingsSetValue(settings, default_settings, 'locktimex_start',self.qmc.locktimex_start, read_defaults)
             self.settingsSetValue(settings, default_settings, 'locktimex_end',self.qmc.locktimex_end, read_defaults)
             self.settingsSetValue(settings, default_settings, 'legendloc',self.qmc.legendloc, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'legendPreferCurveArea', self.qmc.legend_prefer_curve_area, read_defaults)
             self.settingsSetValue(settings, default_settings, 'chargemintime',self.qmc.chargemintime, read_defaults)
             self.settingsSetValue(settings, default_settings, 'temp_grid',self.qmc.temp_grid, read_defaults)
             self.settingsSetValue(settings, default_settings, 'time_grid',self.qmc.time_grid, read_defaults)

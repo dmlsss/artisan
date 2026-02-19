@@ -1686,9 +1686,16 @@ class tgraphcanvas(QObject):
         self.glow:int = 1
 
         self.ror_color_coding:bool = True  # enable RoR trend color coding
-        self.ror_decline_color:str = '#4caf50'  # green for declining RoR
-        self.ror_flat_color:str = '#ff9800'     # amber for flat RoR
-        self.ror_crash_color:str = '#f44336'    # red for crash/flick
+        self.ror_slope_legend:bool = True
+        # Color-blind-friendlier defaults for RoR slope classes.
+        self.ror_decline_color:str = '#0072B2'  # blue for declining slope
+        self.ror_flat_color:str = '#E69F00'     # orange for near-flat slope
+        self.ror_crash_color:str = '#D55E00'    # vermillion for rising/flick slope
+        # Thresholds for classifying dRoR (sample-to-sample change in RoR).
+        self.ror_decline_threshold:float = -0.5
+        self.ror_rise_threshold:float = 1.0
+        # Keep curve legend off the lower slider/controls area by default.
+        self.legend_prefer_curve_area:bool = True
         self._ror_lc:LineCollection | None = None
 
         self.graphstyle:int = 0
@@ -9407,10 +9414,14 @@ class tgraphcanvas(QObject):
                 segments = numpy.concatenate([points[:-1], points[1:]], axis=1)
                 # Classify each segment
                 colors = []
+                decline_threshold = float(self.ror_decline_threshold)
+                rise_threshold = float(self.ror_rise_threshold)
+                if rise_threshold <= decline_threshold:
+                    rise_threshold = decline_threshold + 0.1
                 for d in ror_diff:
-                    if d < -0.5:
+                    if d < decline_threshold:
                         colors.append(self.ror_decline_color)   # declining = good
-                    elif d > 1.0:
+                    elif d > rise_threshold:
                         colors.append(self.ror_crash_color)     # rising/flick = bad
                     else:
                         colors.append(self.ror_flat_color)      # flat = caution
@@ -11465,6 +11476,35 @@ class tgraphcanvas(QObject):
                             self.labels.append(f'{self.aw.arabicReshape(self.aw.BTname)}{deltaLabelMathPrefix}')
                         else:
                             self.labels.append(f'{deltaLabelMathPrefix}{self.aw.BTname}')
+                        if self.ror_color_coding and self.ror_slope_legend:
+                            decline_th = float(self.ror_decline_threshold)
+                            rise_th = float(self.ror_rise_threshold)
+                            if rise_th <= decline_th:
+                                rise_th = decline_th + 0.1
+                            decline_label = QApplication.translate(
+                                'Label',
+                                'RoR slope decline (< {0:.1f})',
+                            ).format(decline_th)
+                            flat_label = QApplication.translate('Label', 'RoR slope flat')
+                            rise_label = QApplication.translate(
+                                'Label',
+                                'RoR slope rise (> {0:.1f})',
+                            ).format(rise_th)
+                            width = max(1.0, float(self.BTdeltalinewidth))
+                            self.handles.extend(
+                                [
+                                    Line2D([0], [0], color=self.ror_decline_color, linewidth=width),
+                                    Line2D([0], [0], color=self.ror_flat_color, linewidth=width),
+                                    Line2D([0], [0], color=self.ror_crash_color, linewidth=width),
+                                ]
+                            )
+                            self.labels.extend(
+                                [
+                                    self.aw.arabicReshape(decline_label),
+                                    self.aw.arabicReshape(flat_label),
+                                    self.aw.arabicReshape(rise_label),
+                                ]
+                            )
 
                     nrdevices = len(self.extradevices)
 
@@ -11568,10 +11608,14 @@ class tgraphcanvas(QObject):
                         if self.legend is None:
                             if self.legendloc_pos is None:
                                 loc = self.legendloc # a position selected in the axis dialog
+                                if self.legend_prefer_curve_area and isinstance(loc, int):
+                                    loc = {3: 2, 4: 1, 8: 9}.get(loc, loc)
                             else:
                                 loc = self.legendloc_pos # a user define legend position set by drag-and-drop
                         else:
                             loc = self.legend._loc # type: ignore[attr-defined] # "Legend" has no attribute "_loc" # pylint: disable=protected-access
+                            if self.legend_prefer_curve_area and isinstance(loc, int):
+                                loc = {3: 2, 4: 1, 8: 9}.get(loc, loc)
                         try:
                             leg = self.ax.legend(self.handles,self.labels, loc=loc,
                                 ncols=ncol,fancybox=True,prop=prop,shadow=False,frameon=True)

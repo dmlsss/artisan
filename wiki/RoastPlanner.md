@@ -33,6 +33,12 @@ It supports:
 - target curve generation from:
   - loaded background profile
   - file-based profile (`.alog`)
+- target inspection summary (sample count, duration, BT range, start/end BT)
+- batch planning presets (`50g`, `75g`, `100g`, `125g`, `150g`)
+- planner goals:
+  - `Safety-first`
+  - `Balanced`
+  - `Precision tracking`
 - schedule inversion into heater/fan trajectories
 - optional joint fan+drum optimisation during inversion
 - trigger modes:
@@ -51,6 +57,8 @@ It supports:
   - Artisan thermal-plan JSON
   - HiBean-style replay CSV
 - alarm schedule export (`.alrm`) and direct apply/store in the live alarm table
+- optional pre-finalization alarm-table review/edit step before save/apply/store
+- optional per-row `Flavor Impact` notes in the review table (collaboration notes only; not exported into `.alrm`)
 
 ## Prerequisites
 
@@ -87,7 +95,10 @@ Before using either mode:
    - optionally save fitted model JSON
 4. `Generate Schedule` tab:
    - choose target source (`Background Profile` or `Load from file...`)
-   - set batch mass, fan strategy, and optional drum strategy
+   - click `Inspect` to verify target summary
+   - choose batch preset (`50/75/100/125/150 g`) and planner goal
+   - click `Apply Preset` for recommended fan/drum/interval/safety defaults
+   - adjust fan strategy and optional drum strategy as needed
    - optionally enable `Jointly optimize fan + drum` and set `Passes`
    - select trigger mode (`Time from CHARGE` or `BT temperature`)
    - for BT mode, tune `BT hysteresis` and `BT min gap` to reduce chatter
@@ -98,6 +109,7 @@ Before using either mode:
    - choose control interval
    - generate schedule
 5. `Export` tab:
+   - optionally click `Review/Edit Alarms` to adjust rows before finalizing
    - save `.alrm`
    - apply alarms directly
    - store schedule into an alarm set slot
