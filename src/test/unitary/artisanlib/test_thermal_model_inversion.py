@@ -53,3 +53,38 @@ def test_invert_model_can_optimize_fan_and_drum() -> None:
     assert np.all(result.fan_pct <= 100.0)
     assert np.all(result.drum_pct >= 0.0)
     assert np.all(result.drum_pct <= 100.0)
+
+
+def test_inversion_accounts_for_regime_heat_uptake_in_development() -> None:
+    target_time = np.linspace(0.0, 360.0, 31, dtype=np.float64)
+    target_bt = np.linspace(95.0, 208.0, 31, dtype=np.float64)
+
+    higher_dev_transfer = KaleidoThermalModel(
+        ThermalModelParams(h_dry_mult=1.0, h_maillard_mult=1.0, h_dev_mult=1.15)
+    )
+    lower_dev_transfer = KaleidoThermalModel(
+        ThermalModelParams(h_dry_mult=1.0, h_maillard_mult=1.0, h_dev_mult=0.80)
+    )
+
+    high_transfer_result = invert_model(
+        model=higher_dev_transfer,
+        target_time=target_time,
+        target_bt=target_bt,
+        mass_kg=0.10,
+        fan_schedule=35.0,
+        drum_schedule=60.0,
+    )
+    low_transfer_result = invert_model(
+        model=lower_dev_transfer,
+        target_time=target_time,
+        target_bt=target_bt,
+        mass_kg=0.10,
+        fan_schedule=35.0,
+        drum_schedule=60.0,
+    )
+
+    dev_mask = target_bt >= 196.0
+    assert np.any(dev_mask)
+    mean_hp_high_transfer = float(np.mean(high_transfer_result.heater_pct[dev_mask]))
+    mean_hp_low_transfer = float(np.mean(low_transfer_result.heater_pct[dev_mask]))
+    assert abs(mean_hp_low_transfer - mean_hp_high_transfer) > 0.05

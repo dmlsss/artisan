@@ -40,6 +40,7 @@ It supports:
   - `Balanced`
   - `Precision tracking`
 - schedule inversion into heater/fan trajectories
+- regime-aware bean heat uptake in the thermal model (drying/maillard/development multipliers)
 - optional joint fan+drum optimisation during inversion
 - trigger modes:
   - time-triggered (`CHARGE + seconds`)
@@ -59,6 +60,11 @@ It supports:
 - alarm schedule export (`.alrm`) and direct apply/store in the live alarm table
 - optional pre-finalization alarm-table review/edit step before save/apply/store
 - optional per-row `Flavor Impact` notes in the review table (collaboration notes only; not exported into `.alrm`)
+- learnable flavor-impact suggestions:
+  - planner seeds a first-pass flavor impact guess per alarm row
+  - your review edits are learned and reused as future defaults for similar actions/stages
+- advanced RoR smoothing modes in `Config >> Curves`:
+  - `Classic`, `Savitzky-Golay`, `Exponential (EMA)`, `Hybrid (SG+EMA)`
 
 ## Prerequisites
 
@@ -102,6 +108,7 @@ Before using either mode:
    - optionally enable `Jointly optimize fan + drum` and set `Passes`
    - select trigger mode (`Time from CHARGE` or `BT temperature`)
    - for BT mode, tune `BT hysteresis` and `BT min gap` to reduce chatter
+   - optionally change RoR smoothing mode in `Config >> Curves` when RoR is still noisy
    - set control deadband (`Min control change`)
    - optionally enable milestone and safety popup alarms
    - set dry-run safety limits (`BT max`, `ET max`, `RoR max`)
@@ -110,6 +117,7 @@ Before using either mode:
    - generate schedule
 5. `Export` tab:
    - optionally click `Review/Edit Alarms` to adjust rows before finalizing
+   - adjust `Flavor Impact` notes during review so the planner can learn your sensory mapping over time
    - save `.alrm`
    - apply alarms directly
    - store schedule into an alarm set slot

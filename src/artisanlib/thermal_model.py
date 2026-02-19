@@ -39,11 +39,11 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 PARAM_NAMES: Final[list[str]] = [
-    'h0', 'h1', 'h2', 'T_amb', 'k_hp', 'k_fan',
+    'h0', 'h1', 'h2', 'h_dry_mult', 'h_maillard_mult', 'h_dev_mult', 'T_amb', 'k_hp', 'k_fan',
     'mA', 'cp0', 'cp1',
     'q_exo', 'T_exo_onset', 'T_exo_width',
 ]
-"""Ordered names of the 12 fittable parameters (excludes m_ref)."""
+"""Ordered names of the 15 fittable parameters (excludes m_ref and regime thresholds)."""
 
 _EXP_CLIP: Final[float] = 500.0
 """Max absolute exponent passed to numpy.exp to avoid overflow."""
@@ -87,13 +87,18 @@ def _safe_sigmoid(x: NDArray | float) -> NDArray | float:
 class ThermalModelParams:
     """Lumped-parameter thermal model parameters for the Kaleido M1 Lite.
 
-    12 fittable parameters plus the reference batch mass.
+    15 fittable parameters plus regime transition settings and reference batch mass.
     """
 
     # Heat-transfer coefficients
     h0: float = 0.5
     h1: float = 0.01
     h2: float = 0.002
+    # Regime-dependent multipliers for bean heat uptake
+    # (drying -> maillard -> development).
+    h_dry_mult: float = 1.03
+    h_maillard_mult: float = 1.00
+    h_dev_mult: float = 0.95
 
     # Environment temperature model
     T_amb: float = 25.0
@@ -112,6 +117,12 @@ class ThermalModelParams:
     T_exo_onset: float = 200.0
     T_exo_width: float = 5.0
 
+    # Regime transition temperatures (deg C) and smooth transition width.
+    # These are not currently fitted; they anchor stage transitions.
+    T_regime_yellowing: float = 150.0
+    T_regime_first_crack: float = 196.0
+    T_regime_width: float = 6.0
+
     # Reference batch mass (kg) — not fitted
     m_ref: float = 0.1
 
@@ -120,7 +131,7 @@ class ThermalModelParams:
     # ------------------------------------------------------------------
 
     def to_vector(self) -> NDArray:
-        """Pack the 12 fittable parameters into a flat array.
+        """Pack the fittable parameters into a flat array.
 
         The order matches :data:`PARAM_NAMES`.
         """
@@ -128,10 +139,10 @@ class ThermalModelParams:
 
     @classmethod
     def from_vector(cls, vec: NDArray, m_ref: float = 0.1) -> ThermalModelParams:
-        """Unpack a flat array of 12 fittable parameters.
+        """Unpack a flat array of fittable parameters.
 
         Args:
-            vec: Array of length 12, ordered per :data:`PARAM_NAMES`.
+            vec: Array ordered per :data:`PARAM_NAMES`.
             m_ref: Reference batch mass in kg (not fitted).
         """
         if len(vec) != len(PARAM_NAMES):
@@ -171,6 +182,26 @@ class ThermalModelParams:
         return ThermalModelParams(**data)
 
 
+def regime_heat_multiplier(params: ThermalModelParams, temperature_c: float) -> float:
+    """Return smooth regime multiplier for bean heat uptake at a given BT.
+
+    The multiplier transitions from ``h_dry_mult`` to ``h_maillard_mult``
+    around yellowing and then to ``h_dev_mult`` around first crack.
+    """
+    width = max(float(params.T_regime_width), 1e-6)
+    s_dry_to_mid = float(
+        _safe_sigmoid((float(temperature_c) - float(params.T_regime_yellowing)) / width)
+    )
+    s_mid_to_dev = float(
+        _safe_sigmoid((float(temperature_c) - float(params.T_regime_first_crack)) / width)
+    )
+
+    stage12 = float(params.h_dry_mult) + (
+        float(params.h_maillard_mult) - float(params.h_dry_mult)
+    ) * s_dry_to_mid
+    return stage12 + (float(params.h_dev_mult) - stage12) * s_mid_to_dev
+
+
 # ---------------------------------------------------------------------------
 # Thermal model
 # ---------------------------------------------------------------------------
@@ -184,7 +215,8 @@ class KaleidoThermalModel:
                             + Q_exo(T)
 
     where:
-        h_eff   = h0 + h1 * fan_pct + h2 * drum_pct
+        h_eff   = (h0 + h1 * fan_pct + h2 * drum_pct) * regime(T_bean)
+        regime  = smooth blend of dry/maillard/development multipliers
         T_env   = T_amb + k_hp * hp_pct - k_fan * fan_pct
         cp(T)   = cp0 + cp1 * T
         Q_exo   = q_exo * sigmoid((T - T_exo_onset) / T_exo_width)
@@ -228,7 +260,8 @@ class KaleidoThermalModel:
         drum_pct: float = float(drum_func(t))
 
         # Effective heat transfer coefficient
-        h_eff: float = p.h0 + p.h1 * fan_pct + p.h2 * drum_pct
+        h_eff_base: float = p.h0 + p.h1 * fan_pct + p.h2 * drum_pct
+        h_eff: float = h_eff_base * regime_heat_multiplier(p, T)
 
         # Effective environment temperature
         T_env: float = p.T_amb + p.k_hp * hp_pct - p.k_fan * fan_pct

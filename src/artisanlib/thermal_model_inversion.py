@@ -29,7 +29,7 @@ import numpy as np
 if TYPE_CHECKING:
     from numpy.typing import NDArray  # pylint: disable=unused-import
 
-from artisanlib.thermal_model import KaleidoThermalModel, _safe_sigmoid
+from artisanlib.thermal_model import KaleidoThermalModel, _safe_sigmoid, regime_heat_multiplier
 
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -237,7 +237,10 @@ def _compute_heater_schedule(
         sig_arg = (T - p.T_exo_onset) / max(p.T_exo_width, _EPS)
         Q_exo = p.q_exo * float(_safe_sigmoid(sig_arg))
 
-        h_eff = max(p.h0 + p.h1 * fan + p.h2 * drum, _EPS)
+        h_eff = max(
+            (p.h0 + p.h1 * fan + p.h2 * drum) * regime_heat_multiplier(p, float(T)),
+            _EPS,
+        )
         k_hp = max(abs(p.k_hp), _EPS)
 
         # Algebraic solution for hp%:

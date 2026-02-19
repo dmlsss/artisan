@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QThread, QSettings, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -78,6 +79,9 @@ _MAX_CALIBRATION_PROFILES: Final[int] = 3
 _BATCH_PRESET_MASSES: Final[tuple[int, ...]] = (50, 75, 100, 125, 150)
 PlannerGoal = Literal['safe', 'balanced', 'precision']
 _BT_TEMP_ALWAYS: Final[float] = 500.0
+_FLAVOR_LEARNING_GROUP: Final[str] = 'ThermalModelControl'
+_FLAVOR_LEARNING_KEY: Final[str] = 'flavorImpactLearningV1'
+_FLAVOR_LEARNING_LIMIT: Final[int] = 512
 
 ACTION_POPUP: Final[int] = 0
 ACTION_HEATER: Final[int] = 3
@@ -214,6 +218,241 @@ def _cap_calibration_file_selection(
     available = max_profiles - current_count
     capped = selected_files[:available]
     return capped, len(capped) < len(selected_files)
+
+
+def _action_token(action: int) -> str:
+    if action == ACTION_HEATER:
+        return 'heater'
+    if action == ACTION_FAN:
+        return 'fan'
+    if action == ACTION_DRUM:
+        return 'drum'
+    return 'popup'
+
+
+def _sanitize_learning_token(text: str, limit: int = 32) -> str:
+    token = ''.join(ch if ch.isalnum() else '_' for ch in str(text).strip().lower())
+    token = token.strip('_')
+    if token == '':
+        token = 'generic'
+    return token[:limit]
+
+
+def _alarm_stage_bucket(
+    alarm_data: AlarmTableData,
+    row: int,
+    max_control_offset: int,
+) -> str:
+    if int(alarm_data.alarmtime[row]) == -1:
+        temp_c = float(alarm_data.alarmtemperature[row])
+        if temp_c < 145.0:
+            return 'drying'
+        if temp_c < 196.0:
+            return 'maillard'
+        return 'development'
+
+    offset = max(0, int(alarm_data.alarmoffset[row]))
+    progress = offset / max(1, int(max_control_offset))
+    if progress < 0.33:
+        return 'drying'
+    if progress < 0.72:
+        return 'maillard'
+    return 'development'
+
+
+def _build_flavor_feature_rows(
+    alarm_data: AlarmTableData,
+) -> list[tuple[str, int, str, str, str]]:
+    if alarm_data.alarm_count() == 0:
+        return []
+
+    control_actions = {ACTION_HEATER, ACTION_FAN, ACTION_DRUM}
+    control_offsets = [
+        int(alarm_data.alarmoffset[i])
+        for i, action in enumerate(alarm_data.alarmaction)
+        if action in control_actions
+    ]
+    if control_offsets:
+        max_control_offset = max(1, int(max(control_offsets)))
+    else:
+        max_control_offset = max(1, int(max(alarm_data.alarmoffset)))
+
+    rows: list[tuple[str, int, str, str, str]] = []
+    last_value_by_action: dict[int, int] = {}
+    for i, action in enumerate(alarm_data.alarmaction):
+        trigger = 'bt' if int(alarm_data.alarmtime[i]) == -1 else 'time'
+        stage = _alarm_stage_bucket(alarm_data, i, max_control_offset)
+        popup_token = ''
+        direction = 'popup'
+
+        if action in control_actions:
+            raw_value = str(alarm_data.alarmstrings[i]).strip()
+            try:
+                value = int(float(raw_value))
+            except Exception:  # pylint: disable=broad-except
+                value = last_value_by_action.get(action, 0)
+            previous = last_value_by_action.get(action)
+            if previous is None:
+                direction = 'set'
+            elif value > previous:
+                direction = 'up'
+            elif value < previous:
+                direction = 'down'
+            else:
+                direction = 'hold'
+            last_value_by_action[action] = value
+            key = f'{_action_token(action)}:{direction}:{stage}:{trigger}'
+        else:
+            popup_token = _sanitize_learning_token(alarm_data.alarmstrings[i])
+            key = f'{_action_token(action)}:{direction}:{stage}:{trigger}:{popup_token}'
+
+        rows.append((key, int(action), direction, stage, popup_token))
+
+    return rows
+
+
+def _build_flavor_feature_keys(alarm_data: AlarmTableData) -> list[str]:
+    return [row[0] for row in _build_flavor_feature_rows(alarm_data)]
+
+
+def _heuristic_flavor_note(action: int, direction: str, stage: str, popup_token: str) -> str:
+    if action == ACTION_POPUP:
+        if 'first_crack' in popup_token:
+            return 'First-crack marker: expect aroma shift and development-driven sweetness changes.'
+        if 'safety' in popup_token:
+            return 'Safety checkpoint: protects cup clarity and reduces defect risk.'
+        if 'drop' in popup_token:
+            return 'Drop milestone: sets final development balance and finish.'
+        return 'Process milestone: use this point to correlate sensory changes after cupping.'
+
+    if action == ACTION_HEATER:
+        if direction == 'up':
+            if stage == 'drying':
+                return 'More early heat can increase body but may reduce floral clarity.'
+            if stage == 'maillard':
+                return 'More Maillard energy may boost caramel sweetness and body.'
+            return 'More late heat can intensify roast tones with higher bitterness risk.'
+        if direction == 'down':
+            if stage == 'drying':
+                return 'Gentler drying can improve cleanliness and reduce harshness risk.'
+            if stage == 'maillard':
+                return 'Lower mid-roast heat can preserve acidity and aromatic detail.'
+            return 'Reduced development heat can preserve origin character and sweetness.'
+        return 'Heat hold: stabilizes momentum and can improve repeatability of cup balance.'
+
+    if action == ACTION_FAN:
+        if direction == 'up':
+            if stage == 'drying':
+                return 'More airflow early can brighten the cup and reduce steam/chaff carryover.'
+            if stage == 'maillard':
+                return 'Higher airflow mid-roast can improve clarity and acidity definition.'
+            return 'Higher airflow late can restrain RoR and reduce smoky/roasty carryover.'
+        if direction == 'down':
+            if stage == 'drying':
+                return 'Lower airflow early can increase heat retention and body potential.'
+            if stage == 'maillard':
+                return 'Lower airflow mid-roast can push sweetness/body over acidity.'
+            return 'Lower airflow late can deepen roast character and perceived weight.'
+        return 'Fan hold: maintains convective balance and flavor consistency.'
+
+    if action == ACTION_DRUM:
+        if direction == 'up':
+            return 'Higher drum speed can even bean exposure and smooth development.'
+        if direction == 'down':
+            return 'Lower drum speed can increase conductive influence and heavier cup weight.'
+        return 'Drum hold: keeps mechanical energy stable for repeatable progression.'
+
+    return 'Flavor impact estimate unavailable.'
+
+
+def _load_flavor_learning_map() -> dict[str, str]:
+    settings = QSettings()
+    settings.beginGroup(_FLAVOR_LEARNING_GROUP)
+    raw = settings.value(_FLAVOR_LEARNING_KEY, '')
+    settings.endGroup()
+    try:
+        data = json.loads(str(raw)) if raw not in {None, ''} else {}
+    except Exception:  # pylint: disable=broad-except
+        data = {}
+    if not isinstance(data, dict):
+        return {}
+    cleaned: dict[str, str] = {}
+    for key, value in data.items():
+        k = str(key).strip()
+        v = str(value).strip()
+        if k and v:
+            cleaned[k] = v
+    return cleaned
+
+
+def _save_flavor_learning_map(learning_map: dict[str, str]) -> None:
+    cleaned_items = [
+        (str(k).strip(), str(v).strip())
+        for k, v in learning_map.items()
+        if str(k).strip() and str(v).strip()
+    ]
+    if len(cleaned_items) > _FLAVOR_LEARNING_LIMIT:
+        cleaned_items = cleaned_items[-_FLAVOR_LEARNING_LIMIT:]
+    payload = dict(cleaned_items)
+    settings = QSettings()
+    settings.beginGroup(_FLAVOR_LEARNING_GROUP)
+    settings.setValue(
+        _FLAVOR_LEARNING_KEY,
+        json.dumps(payload, ensure_ascii=False, separators=(',', ':')),
+    )
+    settings.endGroup()
+
+
+def _apply_flavor_learning(
+    guessed_notes: list[str],
+    feature_keys: list[str],
+    learning_map: dict[str, str],
+) -> list[str]:
+    resolved: list[str] = []
+    for idx, guess in enumerate(guessed_notes):
+        key = feature_keys[idx] if idx < len(feature_keys) else ''
+        learned = str(learning_map.get(key, '')).strip()
+        resolved.append(learned if learned else guess)
+    return resolved
+
+
+def _guess_flavor_impact_notes(
+    alarm_data: AlarmTableData,
+    learning_map: dict[str, str] | None = None,
+) -> list[str]:
+    rows = _build_flavor_feature_rows(alarm_data)
+    guessed = [
+        _heuristic_flavor_note(action, direction, stage, popup_token)
+        for _, action, direction, stage, popup_token in rows
+    ]
+    learned = _load_flavor_learning_map() if learning_map is None else dict(learning_map)
+    return _apply_flavor_learning(guessed, [row[0] for row in rows], learned)
+
+
+def _learn_flavor_impact_notes(
+    alarm_data: AlarmTableData,
+    notes: list[str],
+    baseline_notes: list[str] | None = None,
+    learning_map: dict[str, str] | None = None,
+) -> dict[str, str]:
+    learned = _load_flavor_learning_map() if learning_map is None else dict(learning_map)
+    keys = _build_flavor_feature_keys(alarm_data)
+    baseline = [str(x).strip() for x in (baseline_notes or [])]
+
+    for idx, key in enumerate(keys):
+        if idx >= len(notes):
+            continue
+        note = str(notes[idx]).strip()
+        if note == '':
+            continue
+        if idx < len(baseline) and note == baseline[idx]:
+            # unchanged auto-guess; only persist explicit user corrections
+            continue
+        learned[key] = note
+
+    if learning_map is None:
+        _save_flavor_learning_map(learned)
+    return learned
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +790,7 @@ class ThermalControlDlg(ArtisanDialog):
         self.quality_report: QualityReport | None = None
         self.generated_trigger_mode: str = 'time'
         self.alarm_flavor_notes: list[str] = []
+        self.alarm_flavor_guess_notes: list[str] = []
         self.alarm_review_required: bool = False
         self._fit_worker: FitWorker | None = None
 
@@ -1495,7 +1735,15 @@ class ThermalControlDlg(ArtisanDialog):
             return False
         if dialog.updated_alarm_data is not None:
             self.alarm_data = dialog.updated_alarm_data
-        self.alarm_flavor_notes = list(dialog.updated_flavor_notes)
+        updated_notes = list(dialog.updated_flavor_notes)
+        if self.alarm_data is not None:
+            _learn_flavor_impact_notes(
+                self.alarm_data,
+                updated_notes,
+                baseline_notes=self.alarm_flavor_guess_notes,
+            )
+        self.alarm_flavor_notes = updated_notes
+        self.alarm_flavor_guess_notes = list(updated_notes)
         self.alarm_review_required = False
         self._update_button_states()
         self.aw.sendmessage(
@@ -1623,7 +1871,8 @@ class ThermalControlDlg(ArtisanDialog):
                 bt_safety_ceiling=(float(self.bt_safety_spin.value()) if add_safety else None),
                 et_safety_ceiling=(float(self.et_safety_spin.value()) if add_safety else None),
             )
-            self.alarm_flavor_notes = [''] * self.alarm_data.alarm_count()
+            self.alarm_flavor_guess_notes = _guess_flavor_impact_notes(self.alarm_data)
+            self.alarm_flavor_notes = list(self.alarm_flavor_guess_notes)
             self.alarm_review_required = True
 
             self.safety_validation = None
@@ -1704,6 +1953,7 @@ class ThermalControlDlg(ArtisanDialog):
             self.inversion_result = None
             self.alarm_data = None
             self.alarm_flavor_notes = []
+            self.alarm_flavor_guess_notes = []
             self.alarm_review_required = False
             self.safety_validation = None
             self.quality_report = None

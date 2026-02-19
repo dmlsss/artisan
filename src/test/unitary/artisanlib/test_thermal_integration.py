@@ -12,7 +12,10 @@ from artisanlib.thermal_alarm_generator import (
     generate_alarm_table,
 )
 from artisanlib.thermal_control_dlg import (
+    _build_flavor_feature_keys,
     _cap_calibration_file_selection,
+    _guess_flavor_impact_notes,
+    _learn_flavor_impact_notes,
     normalize_target_curve,
     resolve_batch_planner_preset,
 )
@@ -166,6 +169,47 @@ def test_generate_alarm_table_adds_milestones_and_safety_alarms() -> None:
     assert 'ET safety ceiling' in popup_labels
 
 
+def test_flavor_impact_notes_seed_and_apply_learning_map() -> None:
+    alarms = generate_alarm_table(
+        time=np.array([0.0, 10.0, 20.0], dtype=np.float64),
+        heater_pct=np.array([75.0, 70.0, 65.0], dtype=np.float64),
+        fan_pct=np.array([30.0, 35.0, 35.0], dtype=np.float64),
+        milestone_offsets={'First Crack': 360.0},
+    )
+
+    guessed = _guess_flavor_impact_notes(alarms, learning_map={})
+    assert len(guessed) == alarms.alarm_count()
+    assert any(note.strip() for note in guessed)
+
+    keys = _build_flavor_feature_keys(alarms)
+    assert len(keys) == alarms.alarm_count()
+    custom_learning = {keys[0]: 'Brighter cup with cleaner finish (learned)'}
+
+    resolved = _guess_flavor_impact_notes(alarms, learning_map=custom_learning)
+    assert resolved[0] == 'Brighter cup with cleaner finish (learned)'
+
+
+def test_flavor_impact_learning_updates_on_user_corrections() -> None:
+    alarms = generate_alarm_table(
+        time=np.array([0.0, 10.0, 20.0, 30.0], dtype=np.float64),
+        heater_pct=np.array([70.0, 75.0, 75.0, 68.0], dtype=np.float64),
+        fan_pct=np.array([30.0, 30.0, 35.0, 40.0], dtype=np.float64),
+    )
+
+    baseline = _guess_flavor_impact_notes(alarms, learning_map={})
+    corrected = list(baseline)
+    corrected[0] = 'Jammy sweetness with softer acidity'
+
+    learned = _learn_flavor_impact_notes(
+        alarms,
+        corrected,
+        baseline_notes=baseline,
+        learning_map={},
+    )
+    key0 = _build_flavor_feature_keys(alarms)[0]
+    assert learned[key0] == 'Jammy sweetness with softer acidity'
+
+
 def test_cap_calibration_file_selection_respects_total_limit() -> None:
     selected, limited = _cap_calibration_file_selection(
         current_count=2,
@@ -195,7 +239,7 @@ def test_cap_calibration_file_selection_respects_total_limit() -> None:
         (149, 'balanced', 150),
         (151, 'balanced', 150),
         (61, 'safe', 50),
-        (88, 'safe', 75),
+        (88, 'safe', 100),
         (116, 'safe', 125),
         (140, 'safe', 150),
         (50, 'safe', 50),

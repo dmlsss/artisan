@@ -19058,6 +19058,13 @@ class ApplicationWindow(QMainWindow):
             self.qmc.ror_crash_color = toString(
                 settings.value('ror_crash_color', self.qmc.ror_crash_color)
             )
+            ror_smoothing_mode = toString(
+                settings.value('ror_smoothing_mode', self.qmc.ror_smoothing_mode)
+            ).strip().lower()
+            if ror_smoothing_mode in {'classic', 'savgol', 'ema', 'hybrid'}:
+                self.qmc.ror_smoothing_mode = ror_smoothing_mode
+            else:
+                self.qmc.ror_smoothing_mode = 'classic'
             settings.endGroup()
 #--- END GROUP RoC
 
@@ -20927,6 +20934,7 @@ class ApplicationWindow(QMainWindow):
             self.settingsSetValue(settings, default_settings, 'ror_decline_color', self.qmc.ror_decline_color, read_defaults)
             self.settingsSetValue(settings, default_settings, 'ror_flat_color', self.qmc.ror_flat_color, read_defaults)
             self.settingsSetValue(settings, default_settings, 'ror_crash_color', self.qmc.ror_crash_color, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'ror_smoothing_mode', self.qmc.ror_smoothing_mode, read_defaults)
             settings.endGroup()
 #--- END GROUP RoC
 

@@ -302,6 +302,8 @@ class tgraphcanvas(QObject):
         'ETlcd', 'BTlcd', 'swaplcds', 'LCDdecimalplaces', 'foregroundShowFullflag', 'interpolateDropsflag', 'DeltaETflag', 'DeltaBTflag', 'DeltaETlcdflag', 'DeltaBTlcdflag',
         'swapdeltalcds', 'PIDbuttonflag', 'Controlbuttonflag', 'deltaETfilter', 'deltaBTfilter', 'curvefilter', 'deltaETspan', 'deltaBTspan',
         'deltaETsamples', 'deltaBTsamples', 'profile_sampling_interval', 'background_profile_sampling_interval', 'profile_meter', 'optimalSmoothing', 'polyfitRoRcalc',
+        'ror_smoothing_mode', 'ror_color_coding', 'ror_slope_legend', 'ror_decline_color', 'ror_flat_color', 'ror_crash_color',
+        'ror_decline_threshold', 'ror_rise_threshold', 'legend_prefer_curve_area', '_ror_lc',
         'patheffects', 'graphstyle', 'graphfont', 'buttonvisibility', 'buttonactions', 'buttonactionstrings', 'extrabuttonactions', 'extrabuttonactionstrings',
         'xextrabuttonactions', 'xextrabuttonactionstrings', 'chargeTimerFlag', 'autoChargeFlag', 'autoDropFlag', 'autoChargeMode', 'autoDropMode', 'autoChargeIdx', 'autoDropIdx', 'markTPflag',
         'autoDRYflag', 'autoFCsFlag', 'autoCHARGEenabled', 'autoDRYenabled', 'autoFCsenabled', 'autoDROPenabled', 'projectionconstant',
@@ -1685,6 +1687,12 @@ class tgraphcanvas(QObject):
         self.patheffects:int = 1
         self.glow:int = 1
 
+        # RoR smoothing mode:
+        #   classic: legacy decay/optimal smoothing
+        #   savgol: Savitzky-Golay polynomial filter
+        #   ema: exponential moving average
+        #   hybrid: Savitzky-Golay followed by EMA
+        self.ror_smoothing_mode:str = 'classic'
         self.ror_color_coding:bool = True  # enable RoR trend color coding
         self.ror_slope_legend:bool = True
         # Color-blind-friendlier defaults for RoR slope classes.
@@ -5210,19 +5218,18 @@ class tgraphcanvas(QObject):
                         sample_unfiltereddelta2.append(self.rateofchange2)
 
                         #######   filter deltaBT deltaET
-                        # decay smoothing
                         if self.deltaETfilter:
-                            user_filter = int(round(self.deltaETfilter/2.))
-                            if user_filter and length_of_qmc_timex > user_filter and (len(sample_unfiltereddelta1) > user_filter):
-                                if self.decay_weights is None or len(self.decay_weights) != user_filter: # recompute only on changes
-                                    self.decay_weights = list(numpy.arange(1,user_filter+1))
-                                self.rateofchange1 = self.decay_average(sample_timex,sample_unfiltereddelta1,self.decay_weights)
+                            self.rateofchange1 = self._smooth_live_ror_value(
+                                sample_timex,
+                                [float(v) for v in sample_unfiltereddelta1],
+                                self.deltaETfilter,
+                            )
                         if self.deltaBTfilter:
-                            user_filter = int(round(self.deltaBTfilter/2.))
-                            if user_filter and length_of_qmc_timex > user_filter and (len(sample_unfiltereddelta2) > user_filter):
-                                if self.decay_weights is None or len(self.decay_weights) != user_filter: # recompute only on changes
-                                    self.decay_weights = list(numpy.arange(1,user_filter+1))
-                                self.rateofchange2 = self.decay_average(sample_timex,sample_unfiltereddelta2,self.decay_weights)
+                            self.rateofchange2 = self._smooth_live_ror_value(
+                                sample_timex,
+                                [float(v) for v in sample_unfiltereddelta2],
+                                self.deltaBTfilter,
+                            )
                         rateofchange1plot = self.rateofchange1
                         rateofchange2plot = self.rateofchange2
                     else:
@@ -8604,6 +8611,107 @@ class tgraphcanvas(QObject):
         bb[bb == -1] = numpy.nan
         return bb
 
+    @staticmethod
+    def _normalize_ror_smoothing_mode(mode:str|None) -> str:
+        normalized = str(mode or '').strip().lower()
+        if normalized in {'classic', 'savgol', 'ema', 'hybrid'}:
+            return normalized
+        return 'classic'
+
+    @staticmethod
+    def _ror_ema_alpha(user_filter:int) -> float:
+        # Convert smoothing span-like control to EMA alpha.
+        # Larger filter => stronger smoothing (smaller alpha).
+        span = max(2, int(user_filter))
+        return min(0.85, max(0.08, 2.0 / (span + 1.0)))
+
+    @staticmethod
+    def _ema_filter(values:'npt.NDArray[numpy.double]', alpha:float) -> 'npt.NDArray[numpy.double]':
+        if len(values) < 2:
+            return numpy.asarray(values, dtype=numpy.double)
+        a = min(0.99, max(0.01, float(alpha)))
+        out = numpy.empty(len(values), dtype=numpy.double)
+        out[0] = float(values[0])
+        for i in range(1, len(values)):
+            out[i] = a * float(values[i]) + (1.0 - a) * out[i - 1]
+        return out
+
+    @staticmethod
+    def _finite_series(values:'npt.NDArray[numpy.floating]|npt.NDArray[numpy.double]|Sequence[float]') -> 'npt.NDArray[numpy.double]':
+        arr = numpy.asarray(values, dtype=numpy.double)
+        if arr.size == 0:
+            return arr
+        finite = numpy.isfinite(arr)
+        if bool(numpy.all(finite)):
+            return arr
+        if int(numpy.count_nonzero(finite)) < 2:
+            return numpy.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        idx = numpy.arange(arr.size, dtype=numpy.double)
+        arr = arr.copy()
+        arr[~finite] = numpy.interp(idx[~finite], idx[finite], arr[finite])
+        return arr
+
+    def _savgol_filter_ror(self, values:'npt.NDArray[numpy.double]', user_filter:int) -> 'npt.NDArray[numpy.double]':
+        arr = self._finite_series(values)
+        if len(arr) < 5 or user_filter <= 1:
+            return arr
+        requested = max(5, (int(user_filter) * 2) + 1)
+        max_odd = len(arr) if len(arr) % 2 == 1 else (len(arr) - 1)
+        window = min(requested, max_odd)
+        if window < 5:
+            return arr
+        polyorder = min(3, window - 2)
+        try:
+            from scipy.signal import savgol_filter # type: ignore
+            return numpy.asarray(
+                savgol_filter(arr, window_length=window, polyorder=polyorder, mode='interp'),
+                dtype=numpy.double,
+            )
+        except Exception: # pylint: disable=broad-except
+            return arr
+
+    def _smooth_ror_series(self, timex:'npt.NDArray[numpy.double]', values:'npt.NDArray[numpy.double]',
+            user_filter:int, optimalSmoothing:bool, timex_lin:'npt.NDArray[numpy.double]|None') -> 'npt.NDArray[numpy.double]':
+        mode = self._normalize_ror_smoothing_mode(getattr(self, 'ror_smoothing_mode', 'classic'))
+        if mode == 'classic':
+            return self.smooth_list(
+                timex,
+                values,
+                window_len=user_filter,
+                decay_smoothing=(not optimalSmoothing),
+                a_lin=timex_lin,
+                delta=True,
+            )
+
+        arr = self._finite_series(values)
+        if user_filter <= 1:
+            return arr
+        if mode in {'savgol', 'hybrid'}:
+            arr = self._savgol_filter_ror(arr, user_filter)
+        if mode in {'ema', 'hybrid'}:
+            arr = self._ema_filter(arr, self._ror_ema_alpha(user_filter))
+        return numpy.asarray(arr, dtype=numpy.double)
+
+    def _smooth_live_ror_value(self, sample_timex:list[float], sample_values:list[float], delta_filter:int) -> float:
+        if len(sample_values) == 0:
+            return 0.0
+        user_filter = int(round(delta_filter / 2.0))
+        if user_filter <= 0:
+            return float(sample_values[-1])
+
+        mode = self._normalize_ror_smoothing_mode(getattr(self, 'ror_smoothing_mode', 'classic'))
+        if mode == 'classic':
+            if self.decay_weights is None or len(self.decay_weights) != user_filter: # recompute only on changes
+                self.decay_weights = list(numpy.arange(1,user_filter+1))
+            return float(self.decay_average(sample_timex, sample_values, self.decay_weights))
+
+        arr = self._finite_series(numpy.asarray(sample_values, dtype=numpy.double))
+        if mode in {'savgol', 'hybrid'}:
+            arr = self._savgol_filter_ror(arr, user_filter)
+        if mode in {'ema', 'hybrid'}:
+            arr = self._ema_filter(arr, self._ror_ema_alpha(user_filter))
+        return float(arr[-1]) if len(arr) else 0.0
+
     # deletes saved annotation positions from l_annotations_dict
     # foreground annotations have position keys <=6, background annotation positions have keys > 6,
     def deleteAnnoPositions(self, foreground:bool = False, background:bool = False) -> None:
@@ -9064,7 +9172,13 @@ class tgraphcanvas(QObject):
                 user_filter = deltaFilter
             else:
                 user_filter = int(round(deltaFilter/2.))
-            delta1 = self.smooth_list(timex,z1,window_len=user_filter,decay_smoothing=(not optimalSmoothing),a_lin=timex_lin,delta=True) # pyright:ignore[reportUnknownArgumentType]
+            delta1 = self._smooth_ror_series(
+                timex,
+                numpy.asarray(z1, dtype=numpy.double),
+                user_filter,
+                optimalSmoothing,
+                timex_lin,
+            )
 
             # cut out the part after DROP and before CHARGE and remove values beyond the RoRlimit
             return [

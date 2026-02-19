@@ -337,6 +337,7 @@ class CurvesDlg(ArtisanDialog):
         self.org_ror_flat_color = self.aw.qmc.ror_flat_color
         self.org_ror_crash_color = self.aw.qmc.ror_crash_color
         self.org_legend_prefer_curve_area = self.aw.qmc.legend_prefer_curve_area
+        self.org_ror_smoothing_mode = self.aw.qmc.ror_smoothing_mode
 
         #delta ET
         self.DeltaET = QCheckBox()
@@ -374,6 +375,25 @@ class CurvesDlg(ArtisanDialog):
         self.PolyFitFlag.setToolTip(QApplication.translate('Tooltip', 'Compute the rate-of-rise over the delta span interval by a linear polyfit'))
         self.PolyFitFlag.setChecked(self.aw.qmc.polyfitRoRcalc)
         self.PolyFitFlag.stateChanged.connect(self.changePolyFitFlagFlag)
+
+        self.rorSmoothingModeLabel = QLabel(QApplication.translate('Label', 'RoR Smoothing Mode'))
+        self.rorSmoothingModeCombo = QComboBox()
+        self.rorSmoothingModeCombo.addItem(QApplication.translate('ComboBox', 'Classic'), 'classic')
+        self.rorSmoothingModeCombo.addItem(QApplication.translate('ComboBox', 'Savitzky-Golay'), 'savgol')
+        self.rorSmoothingModeCombo.addItem(QApplication.translate('ComboBox', 'Exponential (EMA)'), 'ema')
+        self.rorSmoothingModeCombo.addItem(QApplication.translate('ComboBox', 'Hybrid (SG+EMA)'), 'hybrid')
+        current_mode = str(self.aw.qmc.ror_smoothing_mode).strip().lower()
+        current_index = self.rorSmoothingModeCombo.findData(current_mode)
+        if current_index < 0:
+            current_index = self.rorSmoothingModeCombo.findData('classic')
+        self.rorSmoothingModeCombo.setCurrentIndex(max(0, current_index))
+        self.rorSmoothingModeCombo.currentIndexChanged.connect(self.changeRoRSmoothingMode)
+        self.rorSmoothingModeCombo.setToolTip(
+            QApplication.translate(
+                'Tooltip',
+                'Choose the RoR smoothing equation family (Classic, Savitzky-Golay, EMA, or Hybrid)',
+            )
+        )
 
         curvefilterlabel = QLabel(QApplication.translate('Label', 'Smooth Curves'))
         curvefilterlabel.setToolTip(QApplication.translate('Tooltip','Linear decay average filter, applied if not recording. Resulting signal is used for RoR computation.'))
@@ -761,6 +781,11 @@ class CurvesDlg(ArtisanDialog):
         rorFilterVBox.addStretch()
         rorFilterVBox.addWidget(self.PolyFitFlag)
         rorFilterVBox.addWidget(self.OptimalSmoothingFlag)
+        rorSmoothingRow = QHBoxLayout()
+        rorSmoothingRow.addWidget(self.rorSmoothingModeLabel)
+        rorSmoothingRow.addWidget(self.rorSmoothingModeCombo)
+        rorSmoothingRow.addStretch()
+        rorFilterVBox.addLayout(rorSmoothingRow)
         rorFilterVBox.addWidget(rorFilterVBoxHLine)
         rorFilterVBox.addLayout(rorFilterHBox)
         rorFilterVBox.addLayout(rorSlopeBox)
@@ -2564,6 +2589,19 @@ class CurvesDlg(ArtisanDialog):
         self.aw.qmc.redraw_keep_view(recomputeAllDeltas=True,re_smooth_foreground=True)
 
     @pyqtSlot(int)
+    def changeRoRSmoothingMode(self, _:int = 0) -> None:
+        mode = str(self.rorSmoothingModeCombo.currentData() or 'classic').strip().lower()
+        if mode not in {'classic', 'savgol', 'ema', 'hybrid'}:
+            mode = 'classic'
+        if self.aw.qmc.ror_smoothing_mode != mode:
+            self.aw.qmc.ror_smoothing_mode = mode
+            self.aw.qmc.redraw_keep_view(
+                recomputeAllDeltas=True,
+                re_smooth_foreground=True,
+                re_smooth_background=True,
+            )
+
+    @pyqtSlot(int)
     def changeDropFilter(self, _:int = 0) -> None:
         self.aw.qmc.filterDropOuts = not self.aw.qmc.filterDropOuts
         self.aw.qmc.redraw_keep_view(recomputeAllDeltas=True,re_smooth_foreground=True, re_smooth_background=True)
@@ -2712,6 +2750,7 @@ class CurvesDlg(ArtisanDialog):
         self.aw.qmc.ror_flat_color = self.org_ror_flat_color
         self.aw.qmc.ror_crash_color = self.org_ror_crash_color
         self.aw.qmc.legend_prefer_curve_area = self.org_legend_prefer_curve_area
+        self.aw.qmc.ror_smoothing_mode = self.org_ror_smoothing_mode
 
         self.aw.setFonts(False)
         self.aw.qmc.resetlinecountcaches()
@@ -2773,6 +2812,7 @@ class CurvesDlg(ArtisanDialog):
         self.aw.qmc.ror_decline_threshold = float2float(decline_threshold, 2)
         self.aw.qmc.ror_rise_threshold = float2float(rise_threshold, 2)
         self.aw.qmc.legend_prefer_curve_area = self.legendPreferCurveArea.isChecked()
+        self.aw.qmc.ror_smoothing_mode = str(self.rorSmoothingModeCombo.currentData() or 'classic').strip().lower()
         self.aw.qmc.filterDropOuts = self.FilterSpikes.isChecked()
         self.aw.qmc.dropSpikes = self.DropSpikes.isChecked()
         self.aw.qmc.dropDuplicates = self.DropDuplicates.isChecked()

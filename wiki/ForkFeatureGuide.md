@@ -20,7 +20,9 @@ What is included:
 - thermal planner batch presets (`50/75/100/125/150 g`) with goal-based defaults
 - target-curve inspection summary in planner drawer (duration/points/BT range)
 - pre-export alarm review table with editable rows and optional flavor-impact notes
+- learnable flavor-impact suggestions (review edits are persisted and reused)
 - Optional fan + drum joint optimization
+- regime-aware bean heat uptake in thermal simulation/inversion (drying/maillard/development)
 - Time-trigger or BT-trigger schedule emission
 - Milestone and safety popup generation
 - Dry-run schedule safety validation
@@ -35,6 +37,7 @@ Kaleido-specific UX and control updates in this fork:
 - `PID` button for Kaleido Auto-Heating toggle
 - Live DTR display in phases area
 - RoR trend color coding (decline/flat/flick segments)
+- selectable RoR smoothing modes (`Classic`, `Savitzky-Golay`, `EMA`, `Hybrid`)
 - Background BT tracking HUD (current roast vs background delta)
 - Roast defect notifications:
   - Baking (sustained low RoR after FC)
