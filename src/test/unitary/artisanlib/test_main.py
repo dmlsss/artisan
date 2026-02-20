@@ -3921,3 +3921,202 @@ class TestFileUtilities:
 
         # Assert
         assert result == 'clean_filename.txt'
+
+
+class _KaleidoTimerStub:
+    def __init__(self) -> None:
+        self.active = False
+
+    def start(self) -> None:
+        self.active = True
+
+    def stop(self) -> None:
+        self.active = False
+
+    def isActive(self) -> bool:
+        return self.active
+
+
+class _KaleidoButtonStub:
+    def __init__(self) -> None:
+        self.visible = True
+        self.enabled = True
+        self.selected = False
+        self.text = ''
+
+    def setVisible(self, value: bool) -> None:
+        self.visible = value
+
+    def setEnabled(self, value: bool) -> None:
+        self.enabled = value
+
+    def setSelected(self, value: bool) -> None:
+        self.selected = value
+
+    def setText(self, value: str) -> None:
+        self.text = value
+
+
+class _KaleidoPortStub:
+    def __init__(self, state: dict[str, float | int] | None = None) -> None:
+        self.state = (state or {}).copy()
+        self.messages: list[tuple[str, str]] = []
+
+    def send_msg(self, target: str, value: str) -> None:
+        self.messages.append((target, value))
+        if target in {'HP', 'FC', 'RC', 'AH'}:
+            self.state[target] = int(round(float(value)))
+        elif target in {'BT', 'ET'}:
+            self.state[target] = float(value)
+
+    def get_state(self, key: str) -> float | int | None:
+        if key in self.state:
+            return self.state[key]
+        if key in {'AH', 'HP', 'FC', 'RC'}:
+            return -1
+        if key in {'BT', 'ET'}:
+            return -1.0
+        return None
+
+
+def _build_kaleido_preheat_aw() -> tuple[ApplicationWindow, _KaleidoPortStub]:
+    aw = ApplicationWindow.__new__(ApplicationWindow)
+    aw.qmc = Mock()
+    aw.qmc.device = 138
+    aw.qmc.flagstart = False
+    aw.qmc.flagon = True
+    aw.qmc.mode = 'C'
+    aw.qmc.temp1 = []
+    aw.qmc.temp2 = []
+    aw.qmc.delta2 = []
+    aw.qmc.on_temp1 = [205.0]
+    aw.qmc.on_temp2 = [200.0]
+    aw.qmc.on_delta2 = [1.0]
+    aw.qmc.rateofchange2 = 1.0
+    aw.qmc.ToggleMonitor = Mock()
+
+    kaleido = _KaleidoPortStub({'AH': 1, 'BT': 200.0, 'ET': 205.0})
+    aw.kaleido = kaleido
+
+    aw.buttonKaleidoAH = _KaleidoButtonStub()
+    aw.buttonKaleidoPreheat = _KaleidoButtonStub()
+    aw.buttonKaleidoPreheatAbort = _KaleidoButtonStub()
+
+    aw.kaleidoPreheatTargetBT = 200.0
+    aw.kaleidoPreheatRampHP = 85
+    aw.kaleidoPreheatHoldHP = 40
+    aw.kaleidoPreheatFC = 45
+    aw.kaleidoPreheatRC = 55
+    aw.kaleidoPreheatToleranceBT = 2.0
+    aw.kaleidoPreheatStableRoR = 2.0
+    aw.kaleidoPreheatStableSeconds = 1
+    aw.kaleidoPreheatMaxMinutes = 25
+    aw.kaleidoPreheatUseETBTSpread = True
+    aw.kaleidoPreheatMaxETBTSpread = 8.0
+    aw.kaleidoPreheatAutoEnableMonitor = True
+    aw.kaleidoPreheatRestoreAH = True
+    aw.kaleidoPreheatActive = False
+    aw.kaleidoPreheatPhase = 'idle'
+    aw.kaleidoPreheatStartEpoch = 0.0
+    aw.kaleidoPreheatStableEpoch = None
+    aw.kaleidoPreheatLastStatusEpoch = 0.0
+    aw.kaleidoPreheatSavedAH = None
+    aw.kaleidoPreheatTimer = _KaleidoTimerStub()
+    return aw, kaleido
+
+
+class TestKaleidoPreheatCycle:
+    def test_start_preheat_enables_cycle_and_sets_outputs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        aw, kaleido = _build_kaleido_preheat_aw()
+        aw.qmc.flagon = False
+        monkeypatch.setattr(ApplicationWindow, 'sendmessage', lambda *_args, **_kwargs: None)
+
+        with patch('artisanlib.main.libtime.monotonic', return_value=100.0):
+            aw.startKaleidoPreheatCycle()
+
+        assert aw.qmc.ToggleMonitor.called
+        assert aw.kaleidoPreheatActive is True
+        assert aw.kaleidoPreheatPhase == 'ramp'
+        assert aw.kaleidoPreheatTimer.isActive() is True
+        assert ('AH', '0') in kaleido.messages
+        assert ('FC', '45') in kaleido.messages
+        assert ('RC', '55') in kaleido.messages
+        assert ('HP', '85') in kaleido.messages
+
+    def test_tick_transitions_to_hold_and_completes_ready(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        aw, kaleido = _build_kaleido_preheat_aw()
+        monkeypatch.setattr(ApplicationWindow, 'sendmessage', lambda *_args, **_kwargs: None)
+
+        aw.kaleidoPreheatActive = True
+        aw.kaleidoPreheatPhase = 'ramp'
+        aw.kaleidoPreheatSavedAH = True
+        aw.kaleidoPreheatStartEpoch = 0.0
+        aw.kaleidoPreheatTimer.start()
+        aw.qmc.on_temp2 = [199.0]
+        aw.qmc.on_temp1 = [202.0]
+        aw.qmc.on_delta2 = [1.0]
+
+        with patch('artisanlib.main.libtime.monotonic', return_value=10.0):
+            aw.kaleidoPreheatTick()
+
+        assert aw.kaleidoPreheatPhase == 'hold'
+        assert ('HP', '40') in kaleido.messages
+        assert aw.kaleidoPreheatStableEpoch == 10.0
+
+        with patch('artisanlib.main.libtime.monotonic', return_value=12.5):
+            aw.kaleidoPreheatTick()
+
+        assert aw.kaleidoPreheatActive is False
+        assert aw.kaleidoPreheatTimer.isActive() is False
+        assert ('AH', '1') in kaleido.messages
+
+    def test_tick_respects_et_bt_convergence_gate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        aw, _kaleido = _build_kaleido_preheat_aw()
+        monkeypatch.setattr(ApplicationWindow, 'sendmessage', lambda *_args, **_kwargs: None)
+
+        aw.kaleidoPreheatActive = True
+        aw.kaleidoPreheatPhase = 'hold'
+        aw.kaleidoPreheatStartEpoch = 0.0
+        aw.kaleidoPreheatTimer.start()
+        aw.kaleidoPreheatUseETBTSpread = True
+        aw.kaleidoPreheatMaxETBTSpread = 5.0
+        aw.qmc.on_temp2 = [200.0]
+        aw.qmc.on_temp1 = [220.0]
+        aw.qmc.on_delta2 = [0.5]
+
+        with patch('artisanlib.main.libtime.monotonic', return_value=20.0):
+            aw.kaleidoPreheatTick()
+
+        assert aw.kaleidoPreheatStableEpoch is None
+        assert aw.kaleidoPreheatActive is True
+
+    def test_tick_timeout_stops_cycle(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        aw, _kaleido = _build_kaleido_preheat_aw()
+        monkeypatch.setattr(ApplicationWindow, 'sendmessage', lambda *_args, **_kwargs: None)
+
+        aw.kaleidoPreheatActive = True
+        aw.kaleidoPreheatPhase = 'hold'
+        aw.kaleidoPreheatStartEpoch = 0.0
+        aw.kaleidoPreheatMaxMinutes = 5
+        aw.kaleidoPreheatTimer.start()
+
+        with patch('artisanlib.main.libtime.monotonic', return_value=301.0):
+            aw.kaleidoPreheatTick()
+
+        assert aw.kaleidoPreheatActive is False
+        assert aw.kaleidoPreheatTimer.isActive() is False
+
+    def test_disconnected_aborts_preheat_and_hides_controls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        aw, kaleido = _build_kaleido_preheat_aw()
+        monkeypatch.setattr(ApplicationWindow, 'sendmessage', lambda *_args, **_kwargs: None)
+
+        aw.kaleidoPreheatActive = True
+        aw.kaleidoPreheatSavedAH = True
+        aw.kaleidoPreheatTimer.start()
+        aw.onKaleidoDisconnected()
+
+        assert aw.kaleidoPreheatActive is False
+        assert aw.buttonKaleidoAH.visible is False
+        assert aw.buttonKaleidoPreheat.visible is False
+        assert aw.buttonKaleidoPreheatAbort.visible is False
+        assert ('AH', '1') not in kaleido.messages

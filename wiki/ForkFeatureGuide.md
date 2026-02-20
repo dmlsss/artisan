@@ -35,6 +35,8 @@ Kaleido-specific UX and control updates in this fork:
 
 - Connection status indicator for Kaleido sessions
 - `PID` button for Kaleido Auto-Heating toggle
+- `PREHEAT` + `ABORT` buttons for a no-dummy-load warmup/stabilization cycle
+- `Config >> Kaleido Preheat...` settings for target BT, ramp/hold heat, fan/drum, BT/RoR stability gates, optional ET-BT convergence gate, timeout, and monitor/PID behavior
 - Live DTR display in phases area
 - RoR trend color coding (decline/flat/flick segments)
 - selectable RoR smoothing modes (`Classic`, `Savitzky-Golay`, `EMA`, `Hybrid`)
@@ -45,6 +47,13 @@ Kaleido-specific UX and control updates in this fork:
   - Scorching (high BT before DRY)
   - Underdeveloped (low DTR at DROP)
 - Quick Cupping prompt after DROP for rapid quality notes
+
+Kaleido preheat workflow:
+
+- Press `ON`
+- Press `PREHEAT`
+- Wait for the ready message (stable BT + low |RoR|, and optional ET/BT convergence)
+- Press `START` directly; preheat output settings are retained until changed
 
 Bundled assets:
 

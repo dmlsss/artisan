@@ -13758,16 +13758,14 @@ class tgraphcanvas(QObject):
                     def kaleido_connected_handler() -> None:
                         self.aw.sendmessageSignal.emit(QApplication.translate('Message', '{} connected').format('Kaleido'),True,None)
                         self.aw.updateConnectionIndicator('connected')
-                        # Show the Kaleido AH button when connected
-                        if hasattr(self.aw, 'buttonKaleidoAH'):
-                            self.aw.buttonKaleidoAH.setVisible(True)
+                        if hasattr(self.aw, 'kaleidoControlsVisibilitySignal'):
+                            self.aw.kaleidoControlsVisibilitySignal.emit(True)
 
                     def kaleido_disconnected_handler() -> None:
                         self.aw.sendmessageSignal.emit(QApplication.translate('Message', '{} disconnected').format('Kaleido'),True,None)
                         self.aw.updateConnectionIndicator('disconnected')
-                        # Hide the Kaleido AH button when disconnected
-                        if hasattr(self.aw, 'buttonKaleidoAH'):
-                            self.aw.buttonKaleidoAH.setVisible(False)
+                        if hasattr(self.aw, 'kaleidoDisconnectedSignal'):
+                            self.aw.kaleidoDisconnectedSignal.emit()
 
                     self.aw.kaleido.start(self.mode, self.aw.kaleidoHost, self.aw.kaleidoPort,
                         serial=kaleido_serial,

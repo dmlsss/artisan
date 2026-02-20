@@ -111,7 +111,8 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QMessageBox, QLabel, QMainWi
                          QLCDNumber, QSpinBox, QComboBox,
                          QSlider,
                          QColorDialog, QFrame, QScrollArea, QProgressDialog,
-                         QStyleFactory, QMenuBar, QMenu, QLayout, QDockWidget)
+                         QStyleFactory, QMenuBar, QMenu, QLayout, QDockWidget,
+                         QDialog, QDialogButtonBox, QFormLayout, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtGui import (QScreen, QPageLayout, QAction, QImageReader, QWindow,
                             QKeySequence, QShortcut,
                             QPixmap,QColor,QDesktopServices,QIcon,
@@ -1435,6 +1436,8 @@ class ApplicationWindow(QMainWindow):
     pidOffSignal = pyqtSignal()
     pidToggleSignal = pyqtSignal()
     kaleidoAHStateSignal = pyqtSignal(bool)
+    kaleidoControlsVisibilitySignal = pyqtSignal(bool)
+    kaleidoDisconnectedSignal = pyqtSignal()
     notificationsSetEnabledSignal = pyqtSignal(bool)
     santokerSendMessageSignal = pyqtSignal(bytes,int)
     kaleidoSendMessageSignal = pyqtSignal(str,str)
@@ -1474,7 +1477,12 @@ class ApplicationWindow(QMainWindow):
         'seriallog', 'ser', 'modbus', 'extraMODBUStemps', 'extraMODBUStx', 's7', 'extraS7tx', 'ws', 'extraser', 'extracomport', 'extrabaudrate',
         'extrabytesize', 'extraparity', 'extrastopbits', 'extratimeout', 'hottop', 'santokerHost', 'santokerPort', 'santokerSerial', 'santokerBLE', 'santokerEventFlags', 'santoker', 'santokerR', 'lebrew_roastseeNEXT', 'thermoworksBlueDOT', 'fujipid', 'dtapid', 'pidcontrol', 'soundflag', 'recentRoasts', 'maxRecentRoasts',
         'mugmaHost','mugmaPort', 'mugma', 'mugma_default_host', 'shelly_3EMPro_host', 'shelly_PlusPlug_host',
-        'kaleido_default_host', 'kaleidoHost', 'kaleidoPort', 'kaleidoSerial', 'kaleidoPID', 'kaleido', 'kaleidoEventFlags', 'kaleidoAutoDetect', 'thermalControlAction', 'colorTrack_mean_window_size', 'colorTrack_median_window_size', 'ikawa',
+        'kaleido_default_host', 'kaleidoHost', 'kaleidoPort', 'kaleidoSerial', 'kaleidoPID', 'kaleido', 'kaleidoEventFlags', 'kaleidoAutoDetect',
+        'kaleidoPreheatTargetBT', 'kaleidoPreheatRampHP', 'kaleidoPreheatHoldHP', 'kaleidoPreheatFC', 'kaleidoPreheatRC',
+        'kaleidoPreheatToleranceBT', 'kaleidoPreheatStableRoR', 'kaleidoPreheatStableSeconds', 'kaleidoPreheatMaxMinutes',
+        'kaleidoPreheatUseETBTSpread', 'kaleidoPreheatMaxETBTSpread', 'kaleidoPreheatAutoEnableMonitor', 'kaleidoPreheatRestoreAH',
+        'kaleidoPreheatTimer', 'kaleidoPreheatActive', 'kaleidoPreheatPhase', 'kaleidoPreheatStartEpoch', 'kaleidoPreheatStableEpoch', 'kaleidoPreheatLastStatusEpoch', 'kaleidoPreheatSavedAH',
+        'thermalControlAction', 'colorTrack_mean_window_size', 'colorTrack_median_window_size', 'ikawa',
         'lcdpaletteB', 'lcdpaletteF', 'extraeventsbuttonsflags', 'extraeventslabels', 'extraeventbuttoncolor', 'extraeventsactionstrings',
         'extraeventbuttonround', 'block_quantification_sampling_ticks', 'sampling_seconds_to_block_quantifiction', 'sampling_ticks_to_block_quantifiction', 'extraeventsactionslastvalue',
         'org_extradevicesettings', 'eventslidervalues', 'eventslidervisibilities', 'eventsliderKeyboardControl', 'eventsliderAlternativeLayout_default',
@@ -1488,7 +1496,7 @@ class ApplicationWindow(QMainWindow):
         'fileSaveAction', 'fileSaveCopyAsAction', 'exportMenu', 'convMenu', 'convFromMenu', 'saveGraphMenu', 'reportMenu', 'htmlAction', 'productionMenu',
         'productionWebAction', 'productionCsvAction', 'productionExcelAction', 'rankingMenu', 'rankingWebAction', 'rankingCsvAction', 'rankingExcelAction',
         'saveStatisticsMenu', 'printAction', 'quitAction', 'cutAction', 'copyAction', 'pasteAction', 'editGraphAction', 'backgroundAction',
-        'flavorAction', 'switchAction', 'switchETBTAction', 'machineMenu', 'deviceAction', 'commportAction', 'calibrateDelayAction', 'curvesAction',
+        'flavorAction', 'switchAction', 'switchETBTAction', 'machineMenu', 'kaleidoPreheatAction', 'deviceAction', 'commportAction', 'calibrateDelayAction', 'curvesAction',
         'eventsAction', 'alarmAction', 'phasesGraphAction', 'StatisticsAction', 'WindowconfigAction', 'colorsAction', 'themeMenu', 'autosaveAction',
         'batchAction', 'temperatureConfMenu', 'FahrenheitAction', 'CelsiusAction', 'languageMenu', 'analyzeMenu', 'fitIdealautoAction',
         'analyzeMenu', 'fitIdealx2Action', 'fitIdealx3Action', 'fitIdealx0Action', 'fitBkgndAction', 'clearresultsAction', 'roastCompareAction',
@@ -1499,7 +1507,7 @@ class ApplicationWindow(QMainWindow):
         'button_font_size_tiny', 'button_font_size_micro',
         'pushbuttonstyles_simulator', 'pushbuttonstyles', 'standard_button_tiny_height', 'standard_button_small_height', 'standard_button_height',
         'buttonONOFF', 'buttonSTARTSTOP', 'buttonFCs', 'buttonFCe', 'buttonSCs', 'buttonSCe', 'buttonRESET', 'buttonCHARGE', 'buttonDROP',
-        'buttonCONTROL', 'buttonEVENT', 'buttonSVp5', 'buttonSVp10', 'buttonSVp20', 'buttonSVm20', 'buttonSVm10', 'buttonSVm5', 'buttonKaleidoAH', 'buttonDRY',
+        'buttonCONTROL', 'buttonEVENT', 'buttonSVp5', 'buttonSVp10', 'buttonSVp20', 'buttonSVm20', 'buttonSVm10', 'buttonSVm5', 'buttonKaleidoAH', 'buttonKaleidoPreheat', 'buttonKaleidoPreheatAbort', 'buttonDRY',
         'buttonCOOL', 'lcd1', 'lcd2', 'lcd3', 'lcd4', 'lcd5',
         'lcd6', 'lcd7', 'label2', 'label3', 'label4', 'label5', 'label6', 'label7', 'extraLCD1', 'extraLCD2', 'extraLCDlabel1', 'extraLCDlabel2',
         'extraLCDframe1', 'extraLCDframe2', 'extraLCDvisibility1', 'extraLCDvisibility2', 'extraCurveVisibility1', 'extraCurveVisibility2',
@@ -1853,6 +1861,29 @@ class ApplicationWindow(QMainWindow):
         self.kaleido:KaleidoPort|None = None # holds the Kaleido instance created on connect; reset to None on disconnect
         self.kaleidoEventFlags:list[bool] = [False, False, False, False, False, False, False ] # CHARGE, DRY, FCs, FCe, SCs, SCe, DROP
         self.kaleidoAutoDetect:bool = True # if True, auto-detect Kaleido USB on startup
+        # Kaleido preheat stabilization cycle defaults
+        self.kaleidoPreheatTargetBT:float = 200.0 if self.qmc.mode == 'C' else 392.0
+        self.kaleidoPreheatRampHP:int = 85
+        self.kaleidoPreheatHoldHP:int = 40
+        self.kaleidoPreheatFC:int = 45
+        self.kaleidoPreheatRC:int = 55
+        self.kaleidoPreheatToleranceBT:float = 2.0 if self.qmc.mode == 'C' else 4.0
+        self.kaleidoPreheatStableRoR:float = 2.0 if self.qmc.mode == 'C' else 4.0
+        self.kaleidoPreheatStableSeconds:int = 90
+        self.kaleidoPreheatMaxMinutes:int = 25
+        self.kaleidoPreheatUseETBTSpread:bool = True
+        self.kaleidoPreheatMaxETBTSpread:float = 6.0 if self.qmc.mode == 'C' else 10.0
+        self.kaleidoPreheatAutoEnableMonitor:bool = True
+        self.kaleidoPreheatRestoreAH:bool = True
+        self.kaleidoPreheatTimer:QTimer = QTimer()
+        self.kaleidoPreheatTimer.setInterval(1000)
+        self.kaleidoPreheatTimer.timeout.connect(self.kaleidoPreheatTick)
+        self.kaleidoPreheatActive:bool = False
+        self.kaleidoPreheatPhase:str = 'idle'
+        self.kaleidoPreheatStartEpoch:float = 0.0
+        self.kaleidoPreheatStableEpoch:float|None = None
+        self.kaleidoPreheatLastStatusEpoch:float = 0.0
+        self.kaleidoPreheatSavedAH:bool|None = None
 
         # Ikawa BLE
         self.ikawa:'IKAWA_BLE|None' = None # noqa: UP037
@@ -2485,6 +2516,9 @@ class ApplicationWindow(QMainWindow):
         # populated in populateMachineMenu/populateListMenu if not empty
         # using a QTimer to speed up startup a bit
         QTimer.singleShot(500,self.populateMachineMenu)
+
+        self.kaleidoPreheatAction:QAction = QAction(QApplication.translate('Menu', 'Kaleido Preheat...'), self)
+        self.kaleidoPreheatAction.triggered.connect(self.configureKaleidoPreheat)
 
         self.deviceAction:QAction = QAction(QApplication.translate('Menu', 'Device...'), self)
         self.deviceAction.triggered.connect(self.deviceassigment)
@@ -3375,6 +3409,19 @@ class ApplicationWindow(QMainWindow):
         self.buttonKaleidoAH.setToolTip(QApplication.translate('Tooltip', 'Toggle Kaleido Auto-Heating PID mode'))
         self.buttonKaleidoAH.setVisible(False)
 
+        # create Kaleido preheat stabilization buttons
+        self.buttonKaleidoPreheat: EventPushButton = EventPushButton(QApplication.translate('Button', 'PREHEAT'), background_color='#6f8f43')
+        self.buttonKaleidoPreheat.setMinimumWidth(90)
+        self.buttonKaleidoPreheat.setMinimumHeight(self.standard_button_height)
+        self.buttonKaleidoPreheat.setToolTip(QApplication.translate('Tooltip', 'Run a Kaleido preheat and stabilization cycle'))
+        self.buttonKaleidoPreheat.setVisible(False)
+
+        self.buttonKaleidoPreheatAbort: EventPushButton = EventPushButton(QApplication.translate('Button', 'ABORT'), background_color='#9a4e4e')
+        self.buttonKaleidoPreheatAbort.setMinimumWidth(90)
+        self.buttonKaleidoPreheatAbort.setMinimumHeight(self.standard_button_height)
+        self.buttonKaleidoPreheatAbort.setToolTip(QApplication.translate('Tooltip', 'Abort Kaleido preheat cycle'))
+        self.buttonKaleidoPreheatAbort.setVisible(False)
+
         #HUD button (button_18 was removed)
 
         #create DRY button
@@ -3395,6 +3442,9 @@ class ApplicationWindow(QMainWindow):
         self.buttonSVm10.clicked.connect(self.adjustPIDsv10m)
         self.buttonSVm5.clicked.connect(self.adjustPIDsv5m)
         self.buttonKaleidoAH.clicked.connect(self.toggleKaleidoAH)
+        self.buttonKaleidoPreheat.clicked.connect(self.startKaleidoPreheatCycle)
+        self.buttonKaleidoPreheatAbort.clicked.connect(self.abortKaleidoPreheatCycle)
+        self.updateKaleidoPreheatButtons()
 
         # NavigationToolbar VMToolbar
         self.ntb: VMToolbar = VMToolbar(self.qmc.canvas, self.main_widget)
@@ -3866,6 +3916,8 @@ class ApplicationWindow(QMainWindow):
         del w
 
         #PID Buttons
+        pidbuttonLayout.addWidget(self.buttonKaleidoPreheat)
+        pidbuttonLayout.addWidget(self.buttonKaleidoPreheatAbort)
         pidbuttonLayout.addWidget(self.buttonKaleidoAH)
         pidbuttonLayout.addWidget(self.buttonSVp20)
         pidbuttonLayout.addWidget(self.buttonSVp10)
@@ -4350,6 +4402,8 @@ class ApplicationWindow(QMainWindow):
         self.pidOffSignal.connect(self.pidOff)
         self.pidToggleSignal.connect(self.pidToggle)
         self.kaleidoAHStateSignal.connect(self.updateKaleidoAHButtonState)
+        self.kaleidoControlsVisibilitySignal.connect(self.setKaleidoControlButtonsVisible)
+        self.kaleidoDisconnectedSignal.connect(self.onKaleidoDisconnected)
         self.notificationsSetEnabledSignal.connect(self.notificationsSetEnabled)
         self.santokerSendMessageSignal.connect(self.santokerSendMessage)
         self.kaleidoSendMessageSignal.connect(self.kaleidoSendMessage)
@@ -4449,6 +4503,7 @@ class ApplicationWindow(QMainWindow):
         config_menu = QMenu(f"&{QApplication.translate('Menu', 'Config')}")
         if ui_mode in {UI_MODE.EXPERT, UI_MODE.DEFAULT}:
             config_menu.addMenu(self.machineMenu)
+            config_menu.addAction(self.kaleidoPreheatAction)
         if ui_mode is UI_MODE.EXPERT:
             config_menu.addAction(self.deviceAction)
             config_menu.addAction(self.commportAction)
@@ -7214,6 +7269,372 @@ class ApplicationWindow(QMainWindow):
         # Update the button's selected state to reflect the Kaleido AH state
         if hasattr(self, 'buttonKaleidoAH'):
             self.buttonKaleidoAH.setSelected(ah_state)
+
+    @staticmethod
+    def clampPercentage(value:int|float) -> int:
+        return max(0, min(100, int(round(value))))
+
+    def setKaleidoControlButtonsVisible(self, visible:bool) -> None:
+        if hasattr(self, 'buttonKaleidoAH'):
+            self.buttonKaleidoAH.setVisible(visible)
+        if hasattr(self, 'buttonKaleidoPreheat'):
+            self.buttonKaleidoPreheat.setVisible(visible)
+        if hasattr(self, 'buttonKaleidoPreheatAbort'):
+            self.buttonKaleidoPreheatAbort.setVisible(visible)
+        self.updateKaleidoPreheatButtons()
+
+    def updateKaleidoPreheatButtons(self) -> None:
+        if hasattr(self, 'buttonKaleidoPreheat'):
+            text = QApplication.translate('Button', 'PREHEAT')
+            if self.kaleidoPreheatActive and self.kaleidoPreheatPhase == 'hold':
+                text = QApplication.translate('Button', 'SOAK')
+            elif self.kaleidoPreheatActive and self.kaleidoPreheatPhase == 'ramp':
+                text = QApplication.translate('Button', 'HEAT')
+            self.buttonKaleidoPreheat.setText(text)
+            self.buttonKaleidoPreheat.setSelected(self.kaleidoPreheatActive)
+            self.buttonKaleidoPreheat.setEnabled((self.qmc.device == 138 and self.kaleido is not None and not self.kaleidoPreheatActive))
+        if hasattr(self, 'buttonKaleidoPreheatAbort'):
+            self.buttonKaleidoPreheatAbort.setEnabled((self.qmc.device == 138 and self.kaleido is not None and self.kaleidoPreheatActive))
+
+    def currentKaleidoBT(self) -> float|None:
+        try:
+            bt_curve = self.qmc.temp2 if self.qmc.flagstart else self.qmc.on_temp2
+            if bt_curve:
+                bt = bt_curve[-1]
+                if bt not in [None, -1] and not math.isnan(float(bt)):
+                    return float(bt)
+        except Exception: # pylint: disable=broad-except
+            pass
+        if self.kaleido is not None:
+            try:
+                bt_state = self.kaleido.get_state('BT')
+                if isinstance(bt_state, (int, float)) and bt_state != -1 and not math.isnan(float(bt_state)):
+                    return float(bt_state)
+            except Exception: # pylint: disable=broad-except
+                pass
+        return None
+
+    def currentKaleidoET(self) -> float|None:
+        try:
+            et_curve = self.qmc.temp1 if self.qmc.flagstart else self.qmc.on_temp1
+            if et_curve:
+                et = et_curve[-1]
+                if et not in [None, -1] and not math.isnan(float(et)):
+                    return float(et)
+        except Exception: # pylint: disable=broad-except
+            pass
+        if self.kaleido is not None:
+            try:
+                et_state = self.kaleido.get_state('ET')
+                if isinstance(et_state, (int, float)) and et_state != -1 and not math.isnan(float(et_state)):
+                    return float(et_state)
+            except Exception: # pylint: disable=broad-except
+                pass
+        return None
+
+    def currentKaleidoRoR(self) -> float|None:
+        try:
+            delta_curve = self.qmc.delta2 if self.qmc.flagstart else self.qmc.on_delta2
+            if delta_curve:
+                ror = delta_curve[-1]
+                if ror not in [None, -1] and not math.isnan(float(ror)):
+                    return float(ror)
+        except Exception: # pylint: disable=broad-except
+            pass
+        if not self.qmc.flagon and not self.qmc.flagstart:
+            return None
+        try:
+            if self.qmc.rateofchange2 != -1 and not math.isnan(float(self.qmc.rateofchange2)):
+                return float(self.qmc.rateofchange2)
+        except Exception: # pylint: disable=broad-except
+            pass
+        return None
+
+    def setKaleidoPreheatOutputs(self, hp:int|None = None, fc:int|None = None, rc:int|None = None, ah:int|None = None) -> None:
+        if self.kaleido is None:
+            return
+        if hp is not None:
+            self.kaleido.send_msg('HP', str(self.clampPercentage(hp)))
+        if fc is not None:
+            self.kaleido.send_msg('FC', str(self.clampPercentage(fc)))
+        if rc is not None:
+            self.kaleido.send_msg('RC', str(self.clampPercentage(rc)))
+        if ah is not None:
+            self.kaleido.send_msg('AH', str(max(0, min(1, int(ah)))))
+
+    @pyqtSlot(bool)
+    def configureKaleidoPreheat(self, _:bool = False) -> None:
+        unit = ('\N{DEGREE SIGN}C' if self.qmc.mode == 'C' else '\N{DEGREE SIGN}F')
+        target_min = 120.0 if self.qmc.mode == 'C' else 250.0
+        target_max = 260.0 if self.qmc.mode == 'C' else 500.0
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(QApplication.translate('Menu', 'Kaleido Preheat'))
+        dialog.setModal(True)
+
+        form = QFormLayout()
+
+        target_bt = QDoubleSpinBox(dialog)
+        target_bt.setDecimals(1)
+        target_bt.setRange(target_min, target_max)
+        target_bt.setSingleStep(1.0)
+        target_bt.setValue(self.kaleidoPreheatTargetBT)
+        form.addRow(QApplication.translate('Label', 'Target BT ({0})').format(unit), target_bt)
+
+        ramp_hp = QSpinBox(dialog)
+        ramp_hp.setRange(0, 100)
+        ramp_hp.setValue(self.kaleidoPreheatRampHP)
+        form.addRow(QApplication.translate('Label', 'Ramp Heat (%)'), ramp_hp)
+
+        hold_hp = QSpinBox(dialog)
+        hold_hp.setRange(0, 100)
+        hold_hp.setValue(self.kaleidoPreheatHoldHP)
+        form.addRow(QApplication.translate('Label', 'Hold Heat (%)'), hold_hp)
+
+        fan = QSpinBox(dialog)
+        fan.setRange(0, 100)
+        fan.setValue(self.kaleidoPreheatFC)
+        form.addRow(QApplication.translate('Label', 'Fan (%)'), fan)
+
+        drum = QSpinBox(dialog)
+        drum.setRange(0, 100)
+        drum.setValue(self.kaleidoPreheatRC)
+        form.addRow(QApplication.translate('Label', 'Drum (%)'), drum)
+
+        tol_bt = QDoubleSpinBox(dialog)
+        tol_bt.setDecimals(1)
+        tol_bt.setRange(0.5, 25.0)
+        tol_bt.setSingleStep(0.5)
+        tol_bt.setValue(self.kaleidoPreheatToleranceBT)
+        form.addRow(QApplication.translate('Label', 'BT Tolerance ({0})').format(unit), tol_bt)
+
+        stable_ror = QDoubleSpinBox(dialog)
+        stable_ror.setDecimals(1)
+        stable_ror.setRange(0.5, 25.0)
+        stable_ror.setSingleStep(0.5)
+        stable_ror.setValue(self.kaleidoPreheatStableRoR)
+        form.addRow(QApplication.translate('Label', 'Stable |RoR| ({0}/min)').format(unit), stable_ror)
+
+        stable_seconds = QSpinBox(dialog)
+        stable_seconds.setRange(10, 600)
+        stable_seconds.setSingleStep(5)
+        stable_seconds.setValue(self.kaleidoPreheatStableSeconds)
+        form.addRow(QApplication.translate('Label', 'Stable Hold (s)'), stable_seconds)
+
+        max_minutes = QSpinBox(dialog)
+        max_minutes.setRange(5, 120)
+        max_minutes.setValue(self.kaleidoPreheatMaxMinutes)
+        form.addRow(QApplication.translate('Label', 'Timeout (min)'), max_minutes)
+
+        use_etbt = QCheckBox(dialog)
+        use_etbt.setChecked(self.kaleidoPreheatUseETBTSpread)
+        form.addRow(QApplication.translate('Label', '|ET-BT| Gate'), use_etbt)
+
+        max_etbt = QDoubleSpinBox(dialog)
+        max_etbt.setDecimals(1)
+        max_etbt.setRange(0.5, 40.0)
+        max_etbt.setSingleStep(0.5)
+        max_etbt.setValue(self.kaleidoPreheatMaxETBTSpread)
+        max_etbt.setEnabled(use_etbt.isChecked())
+        use_etbt.toggled.connect(max_etbt.setEnabled)
+        form.addRow(QApplication.translate('Label', 'Max |ET-BT| ({0})').format(unit), max_etbt)
+
+        auto_monitor = QCheckBox(dialog)
+        auto_monitor.setChecked(self.kaleidoPreheatAutoEnableMonitor)
+        form.addRow(QApplication.translate('Label', 'Auto-enable Monitor'), auto_monitor)
+
+        restore_ah = QCheckBox(dialog)
+        restore_ah.setChecked(self.kaleidoPreheatRestoreAH)
+        form.addRow(QApplication.translate('Label', 'Restore PID (AH) when done'), restore_ah)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, Qt.Orientation.Horizontal, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.addLayout(form)
+        dialog_layout.addWidget(buttons)
+
+        if dialog.exec():
+            self.kaleidoPreheatTargetBT = float(target_bt.value())
+            self.kaleidoPreheatRampHP = self.clampPercentage(ramp_hp.value())
+            self.kaleidoPreheatHoldHP = self.clampPercentage(hold_hp.value())
+            self.kaleidoPreheatFC = self.clampPercentage(fan.value())
+            self.kaleidoPreheatRC = self.clampPercentage(drum.value())
+            self.kaleidoPreheatToleranceBT = float(tol_bt.value())
+            self.kaleidoPreheatStableRoR = float(stable_ror.value())
+            self.kaleidoPreheatStableSeconds = int(stable_seconds.value())
+            self.kaleidoPreheatMaxMinutes = int(max_minutes.value())
+            self.kaleidoPreheatUseETBTSpread = use_etbt.isChecked()
+            self.kaleidoPreheatMaxETBTSpread = float(max_etbt.value())
+            self.kaleidoPreheatAutoEnableMonitor = auto_monitor.isChecked()
+            self.kaleidoPreheatRestoreAH = restore_ah.isChecked()
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat settings updated'))
+
+    @pyqtSlot(bool)
+    def startKaleidoPreheatCycle(self, _:bool = False) -> None:
+        if self.qmc.device != 138 or self.kaleido is None:
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat requires an active Kaleido connection'))
+            return
+        if self.kaleidoPreheatActive:
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat is already running'))
+            return
+        if self.qmc.flagstart:
+            self.sendmessage(QApplication.translate('Message', 'Stop recording before starting Kaleido preheat'))
+            return
+
+        if not self.qmc.flagon:
+            if self.kaleidoPreheatAutoEnableMonitor:
+                self.qmc.ToggleMonitor()
+            else:
+                self.sendmessage(QApplication.translate('Message', 'Turn Monitor ON first (or enable Auto-enable Monitor in Kaleido Preheat settings)'))
+                return
+
+        ah_state = self.kaleido.get_state('AH')
+        self.kaleidoPreheatSavedAH = (bool(ah_state) if isinstance(ah_state, int) and ah_state in {0, 1} else None)
+        self.setKaleidoPreheatOutputs(ah=0)
+        self.setKaleidoPreheatOutputs(fc=self.kaleidoPreheatFC, rc=self.kaleidoPreheatRC, hp=self.kaleidoPreheatRampHP)
+
+        self.kaleidoPreheatActive = True
+        self.kaleidoPreheatPhase = 'ramp'
+        self.kaleidoPreheatStartEpoch = libtime.monotonic()
+        self.kaleidoPreheatStableEpoch = None
+        self.kaleidoPreheatLastStatusEpoch = 0.0
+        self.kaleidoPreheatTimer.start()
+        self.updateKaleidoPreheatButtons()
+
+        unit = ('\N{DEGREE SIGN}C' if self.qmc.mode == 'C' else '\N{DEGREE SIGN}F')
+        self.sendmessage(
+            QApplication.translate('Message', 'Kaleido preheat started (target BT {0:.1f}{1}, ramp HP {2}%)').format(
+                self.kaleidoPreheatTargetBT,
+                unit,
+                self.kaleidoPreheatRampHP))
+
+    def stopKaleidoPreheatCycle(self, *, message:str|None = None, success:bool = False, restore_ah:bool|None = None) -> None:
+        was_active = self.kaleidoPreheatActive
+        if self.kaleidoPreheatTimer.isActive():
+            self.kaleidoPreheatTimer.stop()
+        self.kaleidoPreheatActive = False
+        self.kaleidoPreheatPhase = 'idle'
+        self.kaleidoPreheatStableEpoch = None
+        self.kaleidoPreheatStartEpoch = 0.0
+
+        restore = self.kaleidoPreheatRestoreAH if restore_ah is None else restore_ah
+        if was_active and restore and self.kaleido is not None and self.kaleidoPreheatSavedAH:
+            self.setKaleidoPreheatOutputs(ah=1)
+        self.kaleidoPreheatSavedAH = None
+
+        if hasattr(self, 'buttonKaleidoPreheat'):
+            self.buttonKaleidoPreheat.setSelected(False)
+        if hasattr(self, 'buttonKaleidoPreheatAbort'):
+            self.buttonKaleidoPreheatAbort.setSelected(False)
+        self.updateKaleidoPreheatButtons()
+
+        if message is not None and message.strip() != '':
+            self.sendmessage(message)
+        elif success:
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat finished'))
+
+    @pyqtSlot(bool)
+    def abortKaleidoPreheatCycle(self, _:bool = False) -> None:
+        if not self.kaleidoPreheatActive:
+            return
+        self.stopKaleidoPreheatCycle(message=QApplication.translate('Message', 'Kaleido preheat aborted'))
+
+    def onKaleidoDisconnected(self) -> None:
+        if self.kaleidoPreheatActive:
+            self.stopKaleidoPreheatCycle(
+                message=QApplication.translate('Message', 'Kaleido disconnected; preheat aborted'),
+                restore_ah=False)
+        self.setKaleidoControlButtonsVisible(False)
+        self.updateKaleidoAHButtonState(False)
+
+    @pyqtSlot()
+    def kaleidoPreheatTick(self) -> None:
+        if not self.kaleidoPreheatActive:
+            return
+
+        if self.qmc.device != 138 or self.kaleido is None:
+            self.stopKaleidoPreheatCycle(
+                message=QApplication.translate('Message', 'Kaleido preheat stopped: no active Kaleido connection'),
+                restore_ah=False)
+            return
+
+        now = libtime.monotonic()
+        elapsed = now - self.kaleidoPreheatStartEpoch
+        max_elapsed = max(5, self.kaleidoPreheatMaxMinutes) * 60
+        if elapsed > max_elapsed:
+            self.stopKaleidoPreheatCycle(
+                message=QApplication.translate('Message', 'Kaleido preheat timed out after {0} min').format(self.kaleidoPreheatMaxMinutes))
+            return
+
+        if not self.qmc.flagon and not self.qmc.flagstart and self.kaleidoPreheatAutoEnableMonitor:
+            self.qmc.ToggleMonitor()
+
+        bt = self.currentKaleidoBT()
+        et = self.currentKaleidoET()
+        ror = self.currentKaleidoRoR()
+        if bt is None or ror is None:
+            if now - self.kaleidoPreheatLastStatusEpoch >= 10:
+                self.sendmessage(QApplication.translate('Message', 'Kaleido preheat waiting for BT/RoR readings'))
+                self.kaleidoPreheatLastStatusEpoch = now
+            return
+
+        target = self.kaleidoPreheatTargetBT
+        tolerance = max(0.1, self.kaleidoPreheatToleranceBT)
+
+        # Robust against overshoot/undershoot: toggle between ramp and hold as temperature drifts.
+        if self.kaleidoPreheatPhase == 'ramp' and bt >= target - tolerance:
+            self.kaleidoPreheatPhase = 'hold'
+            self.kaleidoPreheatStableEpoch = None
+            self.setKaleidoPreheatOutputs(hp=self.kaleidoPreheatHoldHP, fc=self.kaleidoPreheatFC, rc=self.kaleidoPreheatRC, ah=0)
+            self.updateKaleidoPreheatButtons()
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat entering stabilization hold'))
+        elif self.kaleidoPreheatPhase == 'hold' and bt < target - (tolerance * 1.5):
+            self.kaleidoPreheatPhase = 'ramp'
+            self.kaleidoPreheatStableEpoch = None
+            self.setKaleidoPreheatOutputs(hp=self.kaleidoPreheatRampHP, fc=self.kaleidoPreheatFC, rc=self.kaleidoPreheatRC, ah=0)
+            self.updateKaleidoPreheatButtons()
+            self.sendmessage(QApplication.translate('Message', 'Kaleido preheat reheating to target'))
+
+        in_bt_band = abs(bt - target) <= tolerance
+        ror_ok = abs(ror) <= max(0.1, self.kaleidoPreheatStableRoR)
+        etbt_ok = True
+        etbt_delta = None
+        if self.kaleidoPreheatUseETBTSpread:
+            if et is None:
+                etbt_ok = False
+            else:
+                etbt_delta = abs(et - bt)
+                etbt_ok = etbt_delta <= max(0.1, self.kaleidoPreheatMaxETBTSpread)
+
+        if self.kaleidoPreheatPhase == 'hold' and in_bt_band and ror_ok and etbt_ok:
+            if self.kaleidoPreheatStableEpoch is None:
+                self.kaleidoPreheatStableEpoch = now
+            elif now - self.kaleidoPreheatStableEpoch >= max(1, self.kaleidoPreheatStableSeconds):
+                unit = ('\N{DEGREE SIGN}C' if self.qmc.mode == 'C' else '\N{DEGREE SIGN}F')
+                self.stopKaleidoPreheatCycle(
+                    message=QApplication.translate('Message', 'Kaleido preheat ready: BT {0:.1f}{1}, RoR {2:.1f}{1}/min').format(bt, unit, ror),
+                    success=True)
+                return
+        else:
+            self.kaleidoPreheatStableEpoch = None
+
+        if now - self.kaleidoPreheatLastStatusEpoch >= 15:
+            unit = ('\N{DEGREE SIGN}C' if self.qmc.mode == 'C' else '\N{DEGREE SIGN}F')
+            etbt_part = ''
+            if self.kaleidoPreheatUseETBTSpread and etbt_delta is not None:
+                etbt_part = QApplication.translate('Message', ', |ET-BT| {0:.1f}/{1:.1f}{2}').format(etbt_delta, self.kaleidoPreheatMaxETBTSpread, unit)
+            self.sendmessage(
+                QApplication.translate('Message', 'Kaleido preheat {0}: BT {1:.1f}/{2:.1f}{3}, RoR {4:.1f}/{5:.1f}{3}/min{6}').format(
+                    self.kaleidoPreheatPhase,
+                    bt,
+                    target,
+                    unit,
+                    ror,
+                    self.kaleidoPreheatStableRoR,
+                    etbt_part))
+            self.kaleidoPreheatLastStatusEpoch = now
 
     # compute the 12 (if step size is 10) or 21 (if step size is 5) or 102 (if step size is 1) event quantifier linespace for type n in [0,3]
     def computeLinespace(self, n:int) -> 'npt.NDArray[numpy.double]':
@@ -18420,6 +18841,24 @@ class ApplicationWindow(QMainWindow):
             self.kaleidoSerial = toBool(settings.value('kaleidoSerial',self.kaleidoSerial))
             self.kaleidoPID = toBool(settings.value('kaleidoPID',self.kaleidoPID))
             self.kaleidoAutoDetect = toBool(settings.value('kaleidoAutoDetect',self.kaleidoAutoDetect))
+            self.kaleidoPreheatTargetBT = toFloat(settings.value('kaleidoPreheatTargetBT',self.kaleidoPreheatTargetBT))
+            self.kaleidoPreheatRampHP = self.clampPercentage(toInt(settings.value('kaleidoPreheatRampHP',self.kaleidoPreheatRampHP)))
+            self.kaleidoPreheatHoldHP = self.clampPercentage(toInt(settings.value('kaleidoPreheatHoldHP',self.kaleidoPreheatHoldHP)))
+            self.kaleidoPreheatFC = self.clampPercentage(toInt(settings.value('kaleidoPreheatFC',self.kaleidoPreheatFC)))
+            self.kaleidoPreheatRC = self.clampPercentage(toInt(settings.value('kaleidoPreheatRC',self.kaleidoPreheatRC)))
+            self.kaleidoPreheatToleranceBT = toFloat(settings.value('kaleidoPreheatToleranceBT',self.kaleidoPreheatToleranceBT))
+            self.kaleidoPreheatStableRoR = toFloat(settings.value('kaleidoPreheatStableRoR',self.kaleidoPreheatStableRoR))
+            self.kaleidoPreheatStableSeconds = toInt(settings.value('kaleidoPreheatStableSeconds',self.kaleidoPreheatStableSeconds))
+            self.kaleidoPreheatMaxMinutes = toInt(settings.value('kaleidoPreheatMaxMinutes',self.kaleidoPreheatMaxMinutes))
+            self.kaleidoPreheatUseETBTSpread = toBool(settings.value('kaleidoPreheatUseETBTSpread',self.kaleidoPreheatUseETBTSpread))
+            self.kaleidoPreheatMaxETBTSpread = toFloat(settings.value('kaleidoPreheatMaxETBTSpread',self.kaleidoPreheatMaxETBTSpread))
+            self.kaleidoPreheatAutoEnableMonitor = toBool(settings.value('kaleidoPreheatAutoEnableMonitor',self.kaleidoPreheatAutoEnableMonitor))
+            self.kaleidoPreheatRestoreAH = toBool(settings.value('kaleidoPreheatRestoreAH',self.kaleidoPreheatRestoreAH))
+            self.kaleidoPreheatToleranceBT = max(0.1, self.kaleidoPreheatToleranceBT)
+            self.kaleidoPreheatStableRoR = max(0.1, self.kaleidoPreheatStableRoR)
+            self.kaleidoPreheatStableSeconds = max(1, self.kaleidoPreheatStableSeconds)
+            self.kaleidoPreheatMaxMinutes = max(1, self.kaleidoPreheatMaxMinutes)
+            self.kaleidoPreheatMaxETBTSpread = max(0.1, self.kaleidoPreheatMaxETBTSpread)
             if settings.contains('kaleidoEventFlags'):
                 self.kaleidoEventFlags = [toBool(x) for x in toList(settings.value('kaleidoEventFlags',self.kaleidoEventFlags))]
             self.mugmaHost = toString(settings.value('mugmaHost',self.mugmaHost))
@@ -20515,6 +20954,19 @@ class ApplicationWindow(QMainWindow):
             self.settingsSetValue(settings, default_settings, 'kaleidoSerial',self.kaleidoSerial, read_defaults)
             self.settingsSetValue(settings, default_settings, 'kaleidoPID',self.kaleidoPID, read_defaults)
             self.settingsSetValue(settings, default_settings, 'kaleidoAutoDetect',self.kaleidoAutoDetect, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatTargetBT',self.kaleidoPreheatTargetBT, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatRampHP',self.kaleidoPreheatRampHP, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatHoldHP',self.kaleidoPreheatHoldHP, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatFC',self.kaleidoPreheatFC, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatRC',self.kaleidoPreheatRC, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatToleranceBT',self.kaleidoPreheatToleranceBT, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatStableRoR',self.kaleidoPreheatStableRoR, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatStableSeconds',self.kaleidoPreheatStableSeconds, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatMaxMinutes',self.kaleidoPreheatMaxMinutes, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatUseETBTSpread',self.kaleidoPreheatUseETBTSpread, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatMaxETBTSpread',self.kaleidoPreheatMaxETBTSpread, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatAutoEnableMonitor',self.kaleidoPreheatAutoEnableMonitor, read_defaults)
+            self.settingsSetValue(settings, default_settings, 'kaleidoPreheatRestoreAH',self.kaleidoPreheatRestoreAH, read_defaults)
             self.settingsSetValue(settings, default_settings, 'kaleidoEventFlags',self.kaleidoEventFlags, read_defaults)
             self.settingsSetValue(settings, default_settings, 'mugmaHost',self.mugmaHost, read_defaults)
             self.settingsSetValue(settings, default_settings, 'mugmaPort',self.mugmaPort, read_defaults)
@@ -21541,10 +21993,13 @@ class ApplicationWindow(QMainWindow):
                 self.thermoworksBlueDOT = None
             elif self.qmc.device == 138 and self.kaleido is not None:
                 # disconnect Kaleido
+                if self.kaleidoPreheatActive:
+                    self.stopKaleidoPreheatCycle(restore_ah=False)
                 self.kaleido.stop()
                 self.kaleido = None
                 # Hide connection indicator
                 self.setConnectionIndicatorVisible(False)
+                self.setKaleidoControlButtonsVisible(False)
             elif self.qmc.device == 164 and self.mugma is not None:
                 # disconnect Mugma
                 self.mugma.stop()
