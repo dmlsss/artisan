@@ -106,6 +106,10 @@ class MockQStandardPaths:
         return ['/tmp/artisan_test_data']
 
 
+class MockQDateTime:
+    """Mock QDateTime type used in TypedDict annotations."""
+
+
 # Set up comprehensive Qt mocking before any artisanlib imports
 mock_modules = {
     'PyQt6': Mock(),
@@ -122,8 +126,10 @@ mock_modules = {
 
 # Configure Qt mocks with proper classes
 mock_modules['PyQt6.QtCore'].QSemaphore = MockQSemaphore
+mock_modules['PyQt6.QtCore'].QDateTime = MockQDateTime
 mock_modules['PyQt6.QtWidgets'].QApplication = MockQApplication
 mock_modules['PyQt5.QtCore'].QSemaphore = MockQSemaphore
+mock_modules['PyQt5.QtCore'].QDateTime = MockQDateTime
 mock_modules['PyQt5.QtWidgets'].QApplication = MockQApplication
 
 # ============================================================================
@@ -135,6 +141,19 @@ mock_modules['PyQt5.QtWidgets'].QApplication = MockQApplication
 # Import modbus module with temporary Qt mocking that doesn't contaminate other tests
 def _import_modbus_with_mocks() -> tuple[Any, Any, Any, Any]: # pyrefly: ignore[bad-return]
     """Import modbus module with temporary mocks that are properly cleaned up."""
+    # Prefer direct import when runtime dependencies are available.
+    # This avoids brittle type-annotation interactions with mocked Qt classes.
+    try:
+        from artisanlib.modbusport import (
+            convert_from_bcd,
+            convert_to_bcd,
+            modbusport,
+        )
+
+        return convert_from_bcd, convert_to_bcd, modbusport, Mock
+    except Exception:  # pylint: disable=broad-except
+        pass
+
     # Store original modules if they exist
     original_modules = {}
     qt_module_names = [
@@ -173,10 +192,12 @@ def _import_modbus_with_mocks() -> tuple[Any, Any, Any, Any]: # pyrefly: ignore[
         mock_modules_local['PyQt6.QtCore'].QSemaphore = MockQSemaphore
         mock_modules_local['PyQt6.QtCore'].QStandardPaths = MockQStandardPaths
         mock_modules_local['PyQt6.QtCore'].QCoreApplication = Mock()
+        mock_modules_local['PyQt6.QtCore'].QDateTime = MockQDateTime
         mock_modules_local['PyQt6.QtWidgets'].QApplication = MockQApplication
         mock_modules_local['PyQt5.QtCore'].QSemaphore = MockQSemaphore
         mock_modules_local['PyQt5.QtCore'].QStandardPaths = MockQStandardPaths
         mock_modules_local['PyQt5.QtCore'].QCoreApplication = Mock()
+        mock_modules_local['PyQt5.QtCore'].QDateTime = MockQDateTime
         mock_modules_local['PyQt5.QtWidgets'].QApplication = MockQApplication
 
         # Force override any existing Qt modules
@@ -292,14 +313,13 @@ def client(mock_aw: Mock) -> modbusport: # type: ignore[valid-type]
     """
     client_instance = modbusport(mock_aw)
 
-    # Ensure the semaphore is properly mocked
+    # Ensure semaphore API is available regardless of mocked or real Qt backend.
     assert hasattr(client_instance, 'COMsemaphore')
-    assert isinstance(client_instance.COMsemaphore, MockQSemaphore)
-
-    # Reset semaphore mocks to ensure clean state
-    client_instance.COMsemaphore.acquire.reset_mock()
-    client_instance.COMsemaphore.release.reset_mock()
-    client_instance.COMsemaphore.available.reset_mock()
+    for method_name in ('acquire', 'release', 'available'):
+        semaphore_method = getattr(client_instance.COMsemaphore, method_name, None)
+        assert callable(semaphore_method)
+        if hasattr(semaphore_method, 'reset_mock'):
+            semaphore_method.reset_mock()
 
     return client_instance # type: ignore[no-any-return]
 

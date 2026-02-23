@@ -2,6 +2,61 @@ Detailed Release History
 ========================
 
 ----
+v4.0.3 (unreleased)
+------------------
+
+* ADDITIONS
+  - adds integrated `Tools >> Roast Planner...` mode chooser for template/event feedforward planning and thermal-model schedule planning
+  - adds planner export of optional safety alarms (`.alrm`) with ET/BT ceiling popups and beeps
+  - adds dedicated planner documentation in [`wiki/RoastPlanner.md`](./RoastPlanner.md)
+  - adds thermal integration tests for target-profile parsing and alarm schedule offsets
+  - adds unit tests for planner profile loading, Kaleido event normalization and safety alarm generation
+  - adds thermal planner trigger-mode selection (`Time from CHARGE` or `BT temperature`)
+  - adds thermal planner optional drum schedule automation (`Off`, `Constant`, `Ramp`)
+  - adds thermal planner batch-size presets (`50/75/100/125/150 g`) with goal-based defaults (`Safety-first`, `Balanced`, `Precision tracking`)
+  - adds target-curve inspection summary in thermal planner (`points`, `duration`, `BT range`, `start/end BT`)
+  - adds thermal planner alarm review/edit table before save/apply/store, including optional flavor-impact note fields
+  - adds control deadband filtering (`Min control change`) to reduce noisy schedule chatter
+  - adds milestone popup alarms (`Yellowing`, `First Crack`, `Drop`) for generated thermal schedules
+  - adds thermal planner estimate reporting for Yellowing/FC/Drop and DTR%
+  - adds thermal planner optional BT/ET safety popup alarms to generated schedules
+  - adds CLI support for trigger mode, drum schedule, milestone toggles, deadband, and safety ceilings in `thermal_model_cli generate`
+  - adds thermal inversion milestone unit tests (`test_thermal_model_inversion.py`)
+  - adds dry-run schedule safety validator (BT/ET/RoR limits) integrated into thermal planner generation and export/apply/store flow
+  - adds BT-trigger hardening controls (`BT hysteresis`, `BT min gap`) to reduce noisy threshold chatter
+  - adds joint fan+drum actuator optimization mode for thermal inversion
+  - adds thermal planner quality report scoring (tracking error + milestone deltas + control churn + safety status)
+  - adds Kaleido connection status indicator and direct Auto-Heating PID toggle button
+  - adds quick cupping popup workflow after DROP to capture rating/notes/defects
+  - adds live background-vs-current BT delta HUD overlay during recording
+  - adds RoR trend color-coding for rapid decline/flat/flick visual diagnosis
+  - adds roast defect detection notifications (baking, crash, scorching, underdeveloped)
+  - adds RoR slope legend entries on the graph and configurable RoR slope thresholds/colors
+  - adds bundled Kaleido profile templates (Light City, Full City, Vienna)
+  - adds one-step Ubuntu setup helper script (`setup-ubuntu.sh`)
+  - adds consolidated fork feature map documentation (`wiki/ForkFeatureGuide.md`)
+  - adds interoperability adapters:
+    - export `artisan-thermal-plan-v1` JSON
+    - export HiBean-style replay CSV
+    - import interop JSON/CSV via `thermal_model_cli interop-convert`
+  - adds unit tests for schedule validator, quality scoring, and interop adapters
+
+* CHANGES
+  - planner normalizes legacy Kaleido control events to Artisan slider channels (`Heat`, `Fan`, `Drum`) for playback
+  - profile deserialization now accepts both Python-literal and strict JSON `.alog` formats
+  - thermal target parsing accepts generic `.alog` files via `timex`/`temp2` without requiring Kaleido extra devices
+  - thermal schedule generation uses positive alarm offsets to avoid skipped time-zero control actions
+  - thermal background-target generation now normalizes Fahrenheit mode to Celsius before inversion
+  - thermal model adds drum coupling (`h2`) so drum schedules participate in forward simulation and fitting
+  - graph legend placement now prefers top curve-area positions to avoid lower control/slider overlap
+
+* FIXES
+  - fixes planner safety alarm action mapping to use the correct popup action code
+  - converts thermal-model calibration and target profile temperatures from Fahrenheit to Celsius when needed
+  - corrects thermal fitting objective weighting so long roasts do not get overweighted
+  - enforces the calibration profile limit as a total cap in the thermal control dialog
+
+----
 v4.0.2 (Feb 7, 2026)
 ------------------
 

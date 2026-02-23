@@ -29,6 +29,7 @@ modules that handle complex web scraping and data parsing operations.
 """
 
 import sys
+import importlib
 from collections.abc import Generator
 from unittest.mock import Mock, patch
 
@@ -43,6 +44,24 @@ def ensure_roastlog_isolation() -> Generator[None, None, None]:
     This fixture runs once per test session to ensure that requests, lxml, PyQt,
     and dateutil dependencies used by roastlog tests don't interfere with other tests.
     """
+    def is_mock_module(module: object) -> bool:
+        return (
+            hasattr(module, '_mock_name')
+            or hasattr(module, '_spec_class')
+            or 'Mock' in str(type(module))
+        )
+
+    # Repair potentially mocked PyQt/atypes modules leaked by other tests.
+    for module_name in ['PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets', 'artisanlib.atypes']:
+        module = sys.modules.get(module_name)
+        if module is not None and is_mock_module(module):
+            del sys.modules[module_name]
+    importlib.import_module('PyQt6')
+    importlib.import_module('PyQt6.QtCore')
+    importlib.import_module('PyQt6.QtGui')
+    importlib.import_module('PyQt6.QtWidgets')
+    importlib.import_module('artisanlib.atypes')
+
     # Store the original modules that roastlog tests need
     original_modules = {}
     modules_to_preserve = [

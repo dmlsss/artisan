@@ -42,6 +42,14 @@ uuid_cache_path_lock = getDirectory(
 )
 
 
+def _flush_lock_handle(fh:IO[str]) -> None:
+    fh.flush()
+    try:
+        os.fsync(fh.fileno())
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
 def addPathShelve(uuid: str, path: str, fh:IO[str]) -> None:
     _log.debug('addPathShelve(%s,%s,_fh_)', uuid, path)
     import dbm
@@ -81,8 +89,7 @@ def addPathShelve(uuid: str, path: str, fh:IO[str]) -> None:
         except Exception as ex:  # pylint: disable=broad-except
             _log.exception(ex)
     finally:
-        fh.flush()
-        os.fsync(fh.fileno())
+        _flush_lock_handle(fh)
 
 
 # register the path for the given uuid, assuming it points to the .alog profile
@@ -141,8 +148,7 @@ def getPath(uuid: str) -> str|None:
                 _log.exception(e)
                 return None
             finally:
-                fh.flush()
-                os.fsync(fh.fileno())
+                _flush_lock_handle(fh)
     except portalocker.exceptions.LockException as e:
         _log.exception(e)
         # we couldn't fetch this lock. It seems to be blocked forever
@@ -169,8 +175,7 @@ def getPath(uuid: str) -> str|None:
                     _log.exception(ex)
                     return None
                 finally:
-                    fh.flush()
-                    os.fsync(fh.fileno())
+                    _flush_lock_handle(fh)
         except Exception as ex:  # pylint: disable=broad-except
             _log.exception(ex)
             return None

@@ -194,6 +194,15 @@ sys.modules['artisanlib.util'].getDirectory = Mock(return_value='/tmp/cache') # 
 
 from plus import register
 
+# Restore global import state immediately after loading the module under test.
+# The tests patch register internals directly, so keeping global sys.modules
+# mocks active would leak into unrelated test modules during collection/runtime.
+for module_name in modules_to_isolate:
+    if module_name in original_modules:
+        sys.modules[module_name] = original_modules[module_name]
+    elif module_name in sys.modules and hasattr(sys.modules[module_name], '_mock_name'):
+        del sys.modules[module_name]
+
 # ============================================================================
 # SESSION-LEVEL ISOLATION FIXTURES
 # Critical fixtures to prevent cross-file module contamination

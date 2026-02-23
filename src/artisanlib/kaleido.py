@@ -15,6 +15,8 @@
 # AUTHOR
 # Marko Luther, 2023
 
+from __future__ import annotations
+
 
 import asyncio
 import websockets
@@ -226,7 +228,7 @@ class KaleidoPort:
 
 #---- WebSocket transport
 
-    async def ws_handle_reads(self, websocket:'ClientConnection') -> None:
+    async def ws_handle_reads(self, websocket:ClientConnection) -> None:
         while self._running:
             res:str|bytes = await asyncio.wait_for(websocket.recv(), timeout=self._read_timeout)
             message:str = (str(res, 'utf-8') if isinstance(res, bytes) else res) # pyright: ignore[reportAssignmentType]
@@ -234,20 +236,20 @@ class KaleidoPort:
                 _log.info('received: %s',message.strip())
             await self.process_message(message)
 
-    async def ws_write(self, websocket: 'ClientConnection', message: str) -> None:
+    async def ws_write(self, websocket: ClientConnection, message: str) -> None:
         if self._logging:
             _log.info('write: %s',message)
         await websocket.send(message)
         await asyncio.sleep(0.1)  # yield control to the event loop
 
-    async def ws_handle_writes(self, websocket: 'ClientConnection', queue: 'asyncio.Queue[str]') -> None:
+    async def ws_handle_writes(self, websocket: ClientConnection, queue: asyncio.Queue[str]) -> None:
         message = await queue.get()
         while message != '':
             await self.ws_write(websocket, message)
             message = await queue.get()
 
     # write aside of the write queue and directly await response
-    async def ws_write_process(self, websocket: 'ClientConnection', message: str) -> None:
+    async def ws_write_process(self, websocket: ClientConnection, message: str) -> None:
         if self._logging:
             _log.info('ws_write_process(%s)',message)
         await asyncio.wait_for(self.ws_write(websocket, message), self._send_timeout)
@@ -258,7 +260,7 @@ class KaleidoPort:
 
     # to initialize the connection we first successfully ping and then set the temperature mode
     # during initialization we are not yet using the async write queue and the read handler
-    async def ws_initialize(self, websocket: 'ClientConnection', mode:str) -> None:
+    async def ws_initialize(self, websocket: ClientConnection, mode:str) -> None:
         # ping first
         while self._running:
             try:
@@ -387,7 +389,7 @@ class KaleidoPort:
         writer.write(str.encode(message))
         await asyncio.wait_for(writer.drain(), timeout=self._send_timeout)
 
-    async def serial_handle_writes(self, writer: asyncio.StreamWriter, queue: 'asyncio.Queue[str]') -> None:
+    async def serial_handle_writes(self, writer: asyncio.StreamWriter, queue: asyncio.Queue[str]) -> None:
         message = await queue.get()
         while message != '':
             await self.serial_write(writer, message)

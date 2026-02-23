@@ -24,6 +24,7 @@ import os
 import io
 import re
 import ast
+import json
 import numpy
 import functools
 from bisect import bisect_right
@@ -981,7 +982,12 @@ def deserialize(filename:str) -> dict[str, Any]:
         fn = str(filename)
         if os.path.exists(fn):
             with open(fn, encoding='utf-8') as f:
-                obj=ast.literal_eval(f.read()) # pylint: disable=eval-used
+                data = f.read()
+                try:
+                    obj = ast.literal_eval(data) # pylint: disable=eval-used
+                except Exception: # pylint: disable=broad-except
+                    # Newer templates can be strict JSON instead of Python literal syntax.
+                    obj = json.loads(data)
     except Exception as ex: # pylint: disable=broad-except
         _log.exception(ex)
     return obj

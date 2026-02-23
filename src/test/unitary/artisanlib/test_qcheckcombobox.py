@@ -22,6 +22,7 @@ Key Features:
 """
 
 import sys
+import importlib
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
@@ -38,6 +39,23 @@ def session_level_isolation() -> Generator[None, None, None]:
     qcheckcombobox tests. It also handles cases where other tests have
     mocked PyQt6 components globally.
     """
+    def is_mock_module(module: Any) -> bool:
+        return (
+            hasattr(module, '_mock_name')
+            or hasattr(module, '_spec_class')
+            or 'Mock' in str(type(module))
+        )
+
+    # Repair potentially mocked Qt modules from earlier test modules.
+    for module_name in ['PyQt6', 'PyQt6.QtCore', 'PyQt6.QtWidgets', 'PyQt6.QtGui']:
+        module = sys.modules.get(module_name)
+        if module is not None and is_mock_module(module):
+            del sys.modules[module_name]
+    importlib.import_module('PyQt6')
+    importlib.import_module('PyQt6.QtCore')
+    importlib.import_module('PyQt6.QtWidgets')
+    importlib.import_module('PyQt6.QtGui')
+
     # Store original PyQt6 modules if they exist and aren't mocked
     original_modules: dict[str, Any] = {}
     qt_modules = ['PyQt6', 'PyQt6.QtCore', 'PyQt6.QtWidgets', 'PyQt6.QtGui']
@@ -45,12 +63,7 @@ def session_level_isolation() -> Generator[None, None, None]:
     for module_name in qt_modules:
         if module_name in sys.modules:
             module = sys.modules[module_name]
-            # Check if it's not a mock
-            if not (
-                hasattr(module, '_mock_name')
-                or hasattr(module, '_spec_class')
-                or 'Mock' in str(type(module))
-            ):
+            if not is_mock_module(module):
                 original_modules[module_name] = module
 
     yield

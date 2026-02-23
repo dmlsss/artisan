@@ -40,6 +40,16 @@ While this document is presumed free of errors as of January 2024, there is no g
     # git clone https://github.com/artisan-roaster-scope/artisan.git
     ```
 
+Optional Ubuntu fast path for this fork
+
+```
+# cd artisan
+# chmod +x setup-ubuntu.sh
+# ./setup-ubuntu.sh --dev
+# source ~/artisan-venv/bin/activate
+# cd src
+```
+
 5. Install required packages
 
     ```
@@ -127,6 +137,24 @@ Testing
 # pytest
 ```
 
+Roast Planner tests
+
+```
+# pytest src/test/unitary/artisanlib/test_roast_planner.py
+# pytest src/test/unitary/artisanlib/test_thermal_integration.py
+# pytest src/test/unitary/artisanlib/test_thermal_model_inversion.py
+# pytest src/test/unitary/artisanlib/test_thermal_schedule_validator.py
+# pytest src/test/unitary/artisanlib/test_thermal_planner_quality.py
+# pytest src/test/unitary/artisanlib/test_thermal_interop.py
+```
+
+Thermal CLI smoke checks
+
+```
+# python -m artisanlib.thermal_model_cli generate <model.json> <target.alog> --mass 120 --fan 35 --drum 60 --optimize-actuators -o schedule.alrm
+# python -m artisanlib.thermal_model_cli interop-convert schedule.json converted.alrm --format auto
+```
+
 Coverage (types, tests)
 
 ```
@@ -136,5 +164,4 @@ Coverage (types, tests)
 # coverage run -m pytest
 # coverage-badge -o coverage.svg
 ```
-
 
