@@ -30,10 +30,12 @@ evolution, and real-time signal processing.
 ## Primary Files & Directories
 
 - `src/artisanlib/thermal_model.py` — ODE system definition
-- `src/artisanlib/thermal_model_fitting.py` — parameter fitting
-- `src/artisanlib/thermal_model_parameters.py` — parameter bounds and defaults
-- `src/artisanlib/thermal_planner.py` — roast planning with thermal model
-- `src/artisanlib/thermal_planner_dialog.py` — planner UI
+- `src/artisanlib/thermal_model_fitting.py` — parameter fitting and bounds
+- `src/artisanlib/thermal_model_inversion.py` — model inversion
+- `src/artisanlib/thermal_model_cli.py` — CLI interface for thermal model
+- `src/artisanlib/thermal_planner_quality.py` — planner quality scoring
+- `src/artisanlib/thermal_profile_parser.py` — profile parsing for thermal model
+- `src/artisanlib/roast_planner.py` — roast planning with thermal model
 - `src/artisanlib/thermal_control_dlg.py` — thermal control dialog
 - `src/artisanlib/curves.py` — mathematical curve functions, RoR
 - `src/artisanlib/canvas.py` — phase calculations, RoR rendering
