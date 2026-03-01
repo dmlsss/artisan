@@ -51,6 +51,12 @@ dmypy.json
 # Augment AI assistant files
 .augment/
 
+# Claude Code infrastructure
+CLAUDE.md
+.claudeignore
+.claude/
+tasks/
+
 # IDEs and editors
 .project
 .pydevproject
