@@ -1531,7 +1531,7 @@ class ApplicationWindow(QMainWindow):
         'buttonpalette', 'extraeventbuttontextcolor', 'extraeventsactions', 'extraeventsdescriptions', 'extraeventstypes', 'extraeventsvalues',
         'extraeventsvisibility', 'fileSaveAsAction', 'keyboardButtonStyles', 'language_menu_actions', 'loadThemeAction', 'main_button_min_width_str',
         'minieventleft', 'minieventright', 'notificationManager', 'notificationsflag', 'ntb', 'pdf_page_layout', 'pdf_rendering', 'productionPDFAction',
-        'rankingPDFAction', 'roastReportMenu', 'roastReportPDFAction', 'saveAsThemeAction', 'sliderGrp12', 'sliderGrp34', 'sliderGrpBox1x', 'sliderGrpBox2x', 'sliderGrpBox3x', 'sliderGrpBox4x',
+        'rankingPDFAction', 'roastReportMenu', 'roastReportPDFAction', 'thermalLabelAction', 'saveAsThemeAction', 'sliderGrp12', 'sliderGrp34', 'sliderGrpBox1x', 'sliderGrpBox2x', 'sliderGrpBox3x', 'sliderGrpBox4x',
         'small_button_min_width_str', 'standard_button_min_width_px', 'tiny_button_min_width_str', 'recording_version', 'recording_revision', 'recording_build',
         'lastIOResult', 'lastArtisanResult', 'max_palettes', 'palette_entries', 'eventsliders', 'defaultSettings', 'zoomInShortcut', 'zoomOutShortcut',
         'summarystatstypes_default', 'summarystatstypes','summarystats_startup', 'summarystatsfontsize', 'bbp_total_time','bbp_bottom_temp','bbp_begin_to_bottom_time','bbp_bottom_to_charge_time',
@@ -2420,6 +2420,10 @@ class ApplicationWindow(QMainWindow):
         self.htmlAction.triggered.connect(self.htmlReport)
         self.htmlAction.setShortcut('Ctrl+R')
         self.roastReportMenu.addAction(self.htmlAction)
+
+        self.thermalLabelAction = QAction(QApplication.translate('Menu', 'Label...'), self)
+        self.thermalLabelAction.triggered.connect(self.thermalLabelPDF)
+        self.roastReportMenu.addAction(self.thermalLabelAction)
 
         self.productionMenu:QMenu = QMenu(QApplication.translate('Menu', 'Batches'))
         self.reportMenu.addMenu(self.productionMenu)
@@ -24221,6 +24225,18 @@ class ApplicationWindow(QMainWindow):
     @pyqtSlot(bool)
     def htmlReport(self, _:bool = False) -> None:
         self.roastReport()
+
+    @pyqtSlot()
+    @pyqtSlot(bool)
+    def thermalLabelPDF(self, _:bool = False) -> None:
+        filename = self.ArtisanSaveFileDialog(msg=QApplication.translate('Message', 'Export Label PDF'), ext='*.pdf')
+        if filename:
+            from artisanlib.thermal_label import generate_label_pdf
+            if generate_label_pdf(self, filename):
+                QApplication.processEvents()
+                self.sendmessage(QApplication.translate('Message', 'Label PDF saved'))
+            else:
+                self.qmc.adderror(QApplication.translate('Error Message', 'Failed to generate label PDF'))
 
     def releaseQWebEngineView(self) -> None:
         try: # sip not supported on older PyQt versions (RPi!)
